@@ -5,6 +5,7 @@
   import ResultsTable from './components/ResultsTable.svelte'
 
   type Variant = {
+    patient_id: string
     gene: string
     variant: string
     dbsnp: string

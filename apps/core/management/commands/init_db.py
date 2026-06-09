@@ -1,5 +1,7 @@
+import logging
+
 from django.core.management.base import BaseCommand
-from apps.core.models import Gene, GeneVariant, GeneticReport, Patient, PatientVariant
+from apps.core.models import Gene, GeneVariant, GeneticReport, HGVS, Patient, PatientVariant
 import glob
 import polars as pl
 from openpyxl import load_workbook
@@ -13,10 +15,12 @@ def sheet_exists(path: str, sheet: str) -> bool:
     wb = load_workbook(path, read_only=True)
     return sheet in wb.sheetnames
 
-def clean_str(value: object) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+def clean_str(value: object, null_if_empty: bool = False) -> str | None:
+    if value is None or value == "-":
+        return None if null_if_empty else ""
+    cleaned = str(value).strip()
+    
+    return cleaned
 
 
 def clean_int(value: object) -> int | None:
@@ -24,17 +28,39 @@ def clean_int(value: object) -> int | None:
         return None
     return int(value)
 
+def normalize_var_type(var_type: str) -> str:
+    if var_type is None:
+        return ""
+    var_type = var_type.lower()
+    if var_type in ["single nucleotide variant", "snv"]:
+        return "SNV"
+    elif var_type in ["snp", "single nucleotide polymorphism"]:
+        return "SNP"
+    elif var_type in ["deletion", "del"]:
+        return "DEL"
+    elif var_type in ["insertion", "ins"]:
+        return "INS"
+    elif var_type in ["duplication", "dup"]:
+        return "DUP"
+    elif var_type in ["indel"]:
+        return "INDEL"
+    else:
+        logging.warning(f"Unknown variation type: {var_type}")
+        return var_type.upper()
+    
 def parse_row(row) -> dict:
     cleaned_data = {}
     cleaned_data["patient_name"] = clean_str(row.get("Name"))
     cleaned_data["gene_symbol"] = clean_str(row.get("Symbol") or row.get("Gene"))
-    cleaned_data["variant"] = clean_str(row.get("Variant_class") or row.get("Variation Type"))
+    cleaned_data["variant"] = normalize_var_type(row.get("Variant_class") or row.get("Variation Type"))
     cleaned_data["chromosome"] = clean_str(row.get("Chr"))
     cleaned_data["position"] = clean_int(row.get("Coordinate") or row.get("Start Position"))
+    cleaned_data["ref"] = clean_str(row.get("Reference") or row.get("Ref"), null_if_empty=True)
+    cleaned_data["alt"] = clean_str(row.get("Alternate") or row.get("Alt"), null_if_empty=True)
     cleaned_data["dbSNP"] = clean_str(row.get("VEP dbSNP ID", "") or row.get("dbSNP", ""))
     cleaned_data["hgvs_c"] = clean_str(row.get("HGVSc") or row.get("Transcript"))
-    cleaned_data["hgvs_c"] += clean_str(row.get("Nucleotide", ""))
-    cleaned_data["hgvs_p"] = clean_str(row.get("HGVSp", "") or row.get("AA Change", ""))
+    cleaned_data["hgvs_c"] += clean_str(row.get("Nucleotide", ""), null_if_empty=True)
+    cleaned_data["hgvs_p"] = clean_str(row.get("HGVSp", "") or row.get("AA Change", ""), null_if_empty=True)
     cleaned_data["category"] = clean_str(row.get("Kategorie"))
     cleaned_data["comment"] = clean_str(row.get("Komentář", ""))
     cleaned_data["exon"] = clean_str(row.get("Exon"))
@@ -56,21 +82,33 @@ def persist_row(data: dict, file_name: str):
     else:
         gene = gene_cache[data["gene_symbol"]]
 
-    if (data["gene_symbol"], data["chromosome"], data["position"], data["variant"], data["hgvs_c"]) not in variant_cache:
+    variant_key = (
+        data["chromosome"],
+        data["position"],
+        data["variant"],
+        data["ref"],
+        data["alt"]
+    )
+    if variant_key not in variant_cache:
         gene_variant, _ = GeneVariant.objects.get_or_create(
-            gene=gene,
             chromosome=data["chromosome"],
             position=data["position"],
             variation_type=data["variant"],
-            hgvs_c=data["hgvs_c"],
-            defaults={
-                "hgvs_p": data["hgvs_p"],
-                "dbsnp": data["dbSNP"],
-            }
+            ref=data["ref"],
+            alt=data["alt"],
+            dbsnp=data["dbSNP"],
         )
-        variant_cache[(data["gene_symbol"], data["chromosome"], data["position"], data["variant"], data["hgvs_c"])] = gene_variant
+        variant_cache[variant_key] = gene_variant
     else:
-        gene_variant = variant_cache[(data["gene_symbol"], data["chromosome"], data["position"], data["variant"], data["hgvs_c"])]
+        gene_variant = variant_cache[variant_key]
+
+    gene_variant.genes.add(gene)
+
+    hgvs_entry, _ = HGVS.objects.get_or_create(
+        hgvs_c=data["hgvs_c"],
+        hgvs_p=data["hgvs_p"],
+        variant=gene_variant
+    )
 
     # TODO - ADD date of the file creation as the created_at and updated_at so it matches the date of the report, not the date of the import
     report, _ = GeneticReport.objects.get_or_create(

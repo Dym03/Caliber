@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import Gene, GeneVariant
+from core.models import Gene, GeneVariant, HGVS
 
 
 class SearchVariantsTests(TestCase):
@@ -9,24 +9,30 @@ class SearchVariantsTests(TestCase):
 		brca1 = Gene.objects.create(symbol="BRCA1")
 		cftr = Gene.objects.create(symbol="CFTR")
 
-		GeneVariant.objects.create(
-			gene=brca1,
+		variant_one = GeneVariant.objects.create(
 			variation_type="deletion",
 			chromosome="chr17",
 			position=43044295,
-			hgvs_c="c.68_69delAG",
-			hgvs_p="",
 			dbsnp="rs80357713",
 		)
+		variant_one.genes.add(brca1)
+		variant_one.hgvs_entries.add(
+			HGVS.objects.create(hgvs_c="c.68_69delAG", hgvs_p="", mane_select=False)
+		)
 
-		GeneVariant.objects.create(
-			gene=cftr,
+		variant_two = GeneVariant.objects.create(
 			variation_type="deletion",
 			chromosome="chr7",
 			position=117199644,
-			hgvs_c="c.1521_1523delCTT",
-			hgvs_p="p.Phe508del",
 			dbsnp="rs113993960",
+		)
+		variant_two.genes.add(cftr)
+		variant_two.hgvs_entries.add(
+			HGVS.objects.create(
+				hgvs_c="c.1521_1523delCTT",
+				hgvs_p="p.Phe508del",
+				mane_select=False,
+			)
 		)
 
 	def test_empty_query_returns_no_results(self):

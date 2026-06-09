@@ -21,34 +21,47 @@ def search_variants(request):
 
 	filters = Q()
 	if gene:
-		filters &= Q(variant__gene__symbol__icontains=gene)
+		filters &= Q(variant__genes__symbol__icontains=gene)
 	if dbsnp:
 		filters &= Q(variant__dbsnp__icontains=dbsnp)
 	if variant:
 		filters &= (
-			Q(variant__hgvs_c__icontains=variant)
-			| Q(variant__hgvs_p__icontains=variant)
+			Q(variant__hgvs__hgvs_c__icontains=variant)
+			| Q(variant__hgvs__hgvs_p__icontains=variant)
 			| Q(variant__variation_type__icontains=variant)
 		)
 
 	queryset = (
-		PatientVariant.objects.select_related("variant__gene", "report")
+		PatientVariant.objects.select_related("variant", "report")
+		.prefetch_related("variant__genes", "variant__hgvs")
 		.filter(filters)
+		.distinct()
 		.order_by("-report__updated_at")[:200]
 	)
 
-	results = [
-		{
-			"gene": item.variant.gene.symbol,
-			"variant": item.variant.hgvs_c,
-			"dbsnp": item.variant.dbsnp,
-			"chromosome": item.variant.chromosome,
-			"position": item.variant.position,
-			"updated_at": item.report.updated_at.isoformat(),
-			"category": item.category or "",
-		}
-		for item in queryset
-	]
+	results = []
+	for item in queryset:
+		variant = item.variant
+		genes = sorted({gene.symbol for gene in variant.genes.all()})
+		hgvs_entries = list(variant.hgvs.all())
+		primary_hgvs = hgvs_entries[0] if hgvs_entries else None
+		if primary_hgvs:
+			variant_label = primary_hgvs.hgvs_c or primary_hgvs.hgvs_p or ""
+		else:
+			variant_label = ""
+
+		results.append(
+			{
+				"patient_id": item.report.patient.name,
+				"gene": ", ".join(genes),
+				"variant": variant_label,
+				"dbsnp": variant.dbsnp,
+				"chromosome": variant.chromosome,
+				"position": variant.position,
+				"updated_at": item.report.updated_at.isoformat(),
+				"category": item.category or "",
+			}
+		)
 
 	return JsonResponse({"results": results})
 
