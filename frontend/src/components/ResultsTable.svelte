@@ -52,6 +52,12 @@
     if (value === 5) return 'category c5'
     return 'category'
   }
+
+  const clinvar_variant_url = (variant_id: string | undefined) => {
+    if (!variant_id) return '#'
+    return `https://www.ncbi.nlm.nih.gov/clinvar/variation/${variant_id}`
+  }
+
 </script>
 
 <div class="card list">
@@ -91,7 +97,20 @@
           <span>{item.position ?? '—'}</span>
           <span>{formatDate(item.updated_at)}</span>
           <span class={categoryClass(item.category)}>{item.category || '—'}</span>
-          <span class={categoryClass(item.clinvar?.score)}><a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/{item.clinvar?.id || ""}">{item.clinvar?.score || '—'}</a></span>
+          {#if item.clinvar?.id}
+            <a 
+              class="{categoryClass(item.clinvar?.score)} clinvar-badge" 
+              target="_blank" 
+              rel="noreferrer" 
+              href={clinvar_variant_url(item.clinvar?.id)}
+            >
+              {item.clinvar?.score || ''}
+            </a>
+          {:else}
+            <span class={categoryClass(item.clinvar?.score)}>
+              {item.clinvar?.score || ''}
+            </span>
+          {/if}
         </div>
       {/each}
     {/if}

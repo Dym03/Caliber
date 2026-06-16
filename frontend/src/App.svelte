@@ -18,7 +18,7 @@
     chromosome: string
     position: number | null
     updated_at: string
-    category: string
+    category: number | null
     clinvar: ClinVarData
   }
 
