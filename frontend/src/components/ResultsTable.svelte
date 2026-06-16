@@ -1,5 +1,6 @@
 <script lang="ts">
   type Variant = {
+    patient_id: string
     gene: string
     variant: string
     dbsnp: string
@@ -58,6 +59,7 @@
   </div>
   <div class="table">
     <div class="row head">
+      <span>Pacient</span>
       <span>Gen</span>
       <span>Varianta</span>
       <span>dbSNP</span>
@@ -73,6 +75,7 @@
     {:else}
       {#each results as item}
         <div class="row">
+          <span>{item.patient_id}</span>
           <span class="pill">{item.gene}</span>
           <span>{item.variant || '—'}</span>
           <span>{item.dbsnp || '—'}</span>
