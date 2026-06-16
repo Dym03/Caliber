@@ -21,23 +21,23 @@ def search_variants(request):
 
     filters = Q()
     if gene:
-        filters &= Q(variant__gene__symbol__icontains=gene)
+        # 1. Changed 'gene' to 'genes' to follow the ManyToMany field name
+        filters &= Q(variant__genes__symbol__icontains=gene)
     if dbsnp:
         filters &= Q(variant__dbsnp__icontains=dbsnp)
     if variant:
-        # We now query through the 'annotations' related_name for hgvs data
         filters &= (
             Q(variant__annotations__hgvs_c__icontains=variant)
             | Q(variant__annotations__hgvs_p__icontains=variant)
             | Q(variant__variation_type__icontains=variant)
-            | Q(reported_hgvs_c__icontains=variant)  # Also check the raw Excel string directly
+            | Q(reported_hgvs_c__icontains=variant)
         )
 
-    # 1. Added prefetch_related for the one-to-many transcript annotations
-    # 2. Added .distinct() to prevent duplicate PatientVariant rows from the join
+    # 2. Replaced 'variant__gene' in select_related with 'variant'
+    # 3. Added 'variant__genes' to prefetch_related (ManyToMany requires prefetch)
     queryset = (
-        PatientVariant.objects.select_related("variant__gene", "report")
-        .prefetch_related("variant__annotations")
+        PatientVariant.objects.select_related("variant", "report")
+        .prefetch_related("variant__annotations", "variant__genes")
         .filter(filters)
         .distinct()
         .order_by("-report__updated_at")[:200]
@@ -45,17 +45,20 @@ def search_variants(request):
 
     results = []
     for item in queryset:
-        # Gather all matching/available transcripts to display if needed
         transcripts = [
             f"{a.transcript_base or ''}.{a.transcript_version or ''}:{a.hgvs_c}".strip(".:")
             for a in item.variant.annotations.all()
         ]
 
+        # 4. Extract all associated gene symbols into a list or a joined string
+        gene_symbols = [g.symbol for g in item.variant.genes.all()]
+
         results.append({
-            "gene": item.variant.gene.symbol,
-            # Falls back to the first transcript if the raw Excel input was blank
+            # Joins multiple genes with a comma (e.g., "GENEA, GENEB") or send as an array
+            "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
+            "all_genes": gene_symbols, 
             "variant": item.reported_hgvs_c or (transcripts[0] if transcripts else ""),
-            "all_transcripts": transcripts,  # Useful addition for debugging version overlaps
+            "all_transcripts": transcripts,
             "dbsnp": item.variant.dbsnp,
             "chromosome": item.variant.chromosome,
             "position": item.variant.position,

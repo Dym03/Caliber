@@ -43,7 +43,7 @@ class GeneVariant(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["chromosome", "position", "variation_type", "ref", "alt"],
+                fields=["chromosome", "position", "variation_type", "ref_allele", "alt_allele"],
                 name="unique_genomic_variant"
             )
         ]
@@ -114,21 +114,4 @@ class PatientVariant(models.Model):
     reported_hgvs_c = models.CharField(max_length=120, blank=True) 
 
     class Meta:
-<<<<<<< Updated upstream
         unique_together = ("report", "variant")
-=======
-        unique_together = ("report", "variant")
-
-class ClinVarGeneVariant(models.Model):
-    """
-    ClinVar-specific metadata.
-    """
-    gene_variant = models.OneToOneField(
-        GeneVariant,
-        on_delete=models.CASCADE,
-        related_name="clinvar_entry",
-    )
-    clinvar_id = models.CharField(max_length=64)
-    clinvar_url = models.URLField(max_length=300, blank=True)
-    clinvar_category = models.CharField(max_length=80, blank=True) # ClinVar's pathogenicity call
->>>>>>> Stashed changes

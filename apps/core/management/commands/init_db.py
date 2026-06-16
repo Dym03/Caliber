@@ -1,19 +1,21 @@
-<<<<<<< Updated upstream
 import logging
-=======
->>>>>>> Stashed changes
 import re
-
-from django.core.management.base import BaseCommand
-from apps.core.models import Gene, GeneVariant, GeneticReport, Patient, PatientVariant, TranscriptAnnotation
 import glob
+import os
+import tempfile
 import polars as pl
 from openpyxl import load_workbook
+from django.core.management.base import BaseCommand
 from django.db import transaction
+from apps.core.models import Gene, GeneVariant, GeneticReport, Patient, PatientVariant, TranscriptAnnotation
 
+# Dedicated in-memory caches to prevent redundant DB lookups inside the loop
 patient_cache = {}
 gene_cache = {}
 variant_cache = {}
+annotation_cache = {}
+variant_gene_m2m_cache = set()  # Tracks (variant_id, gene_id) to avoid repetitive .add() queries
+
 
 def sheet_exists(path: str, sheet: str) -> bool:
     wb = load_workbook(path, read_only=True)
@@ -23,9 +25,7 @@ def clean_str(value: object, null_if_empty: bool = False) -> str | None:
     if value is None or value == "-":
         return None if null_if_empty else ""
     cleaned = str(value).strip()
-    
     return cleaned
-
 
 def clean_int(value: object) -> int | None:
     if value in (None, "", "nan"):
@@ -53,7 +53,6 @@ def normalize_var_type(var_type: str) -> str:
         return var_type.upper()
     
 def parse_excel_hgvs(excel_string):
-    # Regex to split "NM_000059.3:c.432A>G" into base, version, and mutation
     match = re.match(r"(^[A-Z_]+_\d+)\.(\d+):(.*)", excel_string)
     if match:
         return match.group(1), match.group(2), match.group(3)
@@ -82,38 +81,63 @@ def parse_row(row) -> dict:
 
     return cleaned_data
 
+
 def persist_row(data: dict, file_name: str):
     if data["gene_symbol"] == "BTD" and data["ref_allele"] == "G" and data["alt_allele"] == "C":
         print(data)
+
+    # 1. Patient Lookup
     if data["patient_id"] not in patient_cache:
         patient, _ = Patient.objects.get_or_create(name=data["patient_id"])
         patient_cache[data["patient_id"]] = patient
     else:
         patient = patient_cache[data["patient_id"]]
 
-    if data["gene_symbol"] not in gene_cache:
-        gene, _ = Gene.objects.get_or_create(symbol=data["gene_symbol"])
-        gene_cache[data["gene_symbol"]] = gene
-    else:
-        gene = gene_cache[data["gene_symbol"]]
-
-    if (data["gene_symbol"], data["chromosome"], data["position"], data["variation_type"], data["hgvs_c"]) not in variant_cache:
+    # 2. GeneVariant Lookup (Using the updated genomic coordinates unique constraint)
+    variant_key = (
+        data["chromosome"], 
+        data["position"], 
+        data["variation_type"], 
+        data["ref_allele"], 
+        data["alt_allele"]
+    )
+    
+    if variant_key not in variant_cache:
         gene_variant, _ = GeneVariant.objects.get_or_create(
             chromosome=data["chromosome"],
             position=data["position"],
+            variation_type=data["variation_type"],
             ref_allele=data["ref_allele"],
             alt_allele=data["alt_allele"],            
             defaults={
                 "gnomAD": data["gnomAD"],
                 "dbsnp": data["dbSNP"],
-                "variation_type": data["variation_type"],
             }
         )
-        variant_cache[(data["gene_symbol"], data["chromosome"], data["position"], data["variation_type"], data["hgvs_c"])] = gene_variant
+        variant_cache[variant_key] = gene_variant
     else:
-        gene_variant = variant_cache[(data["gene_symbol"], data["chromosome"], data["position"], data["variation_type"], data["hgvs_c"])]
+        gene_variant = variant_cache[variant_key]
 
-    if (data["hgvs_c"], gene_variant.id) not in variant_cache:
+    # 3. Handle ManyToMany Relationship for Genes
+    # Splitting by common delimiters (like commas or slashes) in case an excel row lists overlapping genes
+    gene_symbols = [g.strip() for g in re.split(r'[,;/|]', data["gene_symbol"]) if g.strip()]
+    
+    for symbol in gene_symbols:
+        if symbol not in gene_cache:
+            gene, _ = Gene.objects.get_or_create(symbol=symbol)
+            gene_cache[symbol] = gene
+        else:
+            gene = gene_cache[symbol]
+        
+        # Utilize the m2m cache to prevent executing repetitive SQL intermediate inserts
+        m2m_key = (gene_variant.id, gene.id)
+        if m2m_key not in variant_gene_m2m_cache:
+            gene_variant.genes.add(gene)
+            variant_gene_m2m_cache.add(m2m_key)
+
+    # 4. TranscriptAnnotation Lookup (Moved to a dedicated annotation cache dictionary)
+    annotation_key = (data["hgvs_c"], gene_variant.id)
+    if annotation_key not in annotation_cache:
         annotation, _ = TranscriptAnnotation.objects.get_or_create(
             variant=gene_variant,
             hgvs_c=data["hgvs_c"],
@@ -124,15 +148,15 @@ def persist_row(data: dict, file_name: str):
                 "exon": data["exon"],
             }
         )
-        variant_cache[(data["hgvs_c"], gene_variant.id)] = annotation
+        annotation_cache[annotation_key] = annotation
 
-    # TODO - ADD date of the file creation as the created_at and updated_at so it matches the date of the report, not the date of the import
+    # 5. Report & Patient Linkage
     report, _ = GeneticReport.objects.get_or_create(
         patient=patient,
         report_name=file_name
     )
 
-    p_v, _ = PatientVariant.objects.get_or_create(
+    PatientVariant.objects.get_or_create(
         report=report,
         variant=gene_variant,
         zygosity=data["zygosity"],
@@ -141,18 +165,14 @@ def persist_row(data: dict, file_name: str):
         reported_hgvs_c=data["hgvs_coding"]
     )
 
+
 def parse_df(df: pl.DataFrame, file_name: str):
-    """"
-    Parses wanted fields excel data from the given DataFrame, the variable names depends on the format (Finalist/Franklin)
-    """
     for row in df.iter_rows(named=True):
         cleaned_data = parse_row(row)
         persist_row(cleaned_data, file_name)
         
 
-
 class Command(BaseCommand):
-
     DEFAULT_ROOT_DIR = "."
 
     def add_arguments(self, parser) -> None:
@@ -179,5 +199,3 @@ class Command(BaseCommand):
             
             with transaction.atomic():
                 parse_df(df, file_name)
-
-        
