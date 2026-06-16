@@ -54,8 +54,8 @@ def search_variants(request):
         gene_symbols = [g.symbol for g in item.variant.genes.all()]
 
         results.append({
-            # Joins multiple genes with a comma (e.g., "GENEA, GENEB") or send as an array
 			"patient_id": item.report.patient.name,
+            # Joins multiple genes with a comma (e.g., "GENEA, GENEB") or send as an array
             "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
             "all_genes": gene_symbols, 
             "variant": item.reported_hgvs_c or (transcripts[0] if transcripts else ""),

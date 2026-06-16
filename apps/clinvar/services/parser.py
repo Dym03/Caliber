@@ -1,4 +1,5 @@
 import logging
+import re
 from dataclasses import dataclass
 
 from apps.core.management.commands.init_db import normalize_var_type
@@ -11,56 +12,106 @@ except ImportError:
     logging.info("running with Python's xml.etree.ElementTree")
 
 
+@dataclass
+class TranscriptAnnotation:
+    transcript_base: str | None
+    transcript_version: int | None
+    hgvs_c: str | None
+    hgvs_p: str | None
 
 
 @dataclass
 class ParsedVariant:
-    gene: str
-    chromosome: str
-    position: int
     variation_id: int
     variation_type: str
+
+    chromosome: str | None
+    position: int | None
+    ref_allele: str | None
+    alt_allele: str | None
+    
     last_updated: str
 
-    hgvsc: str | None
-    hgvsp: str | None
-
+    genes: list[str]
+    transcript_annotations: list[TranscriptAnnotation]
     dbsnp: str | None
 
-def process_variation(variation_elem) -> ParsedVariant | None:
+    classification: str | None
+    disease: str | None
+
+
+def parse_variation_coding(variation_elem: etree.Element) -> tuple[str | None, int | None, str | None, str | None]:
+    """Extracts chromosome, position, ref allele, and alt allele from the XML element attributes."""
+    chromosome = None
+    position = None
+    ref_allele = None
+    alt_allele = None
+
+    for loc in variation_elem.findall("Location/SequenceLocation"):
+        if loc.get("Assembly") == "GRCh38":
+            chromosome = loc.get("Chr")
+            position_text = loc.get("positionVCF") or loc.get("start")
+            ref_allele = loc.get("referenceAlleleVCF")
+            alt_allele = loc.get("alternateAlleleVCF")
+
+            if position_text and position_text.isdigit():
+                position = int(position_text)
+            break 
+
+    return chromosome, position, ref_allele, alt_allele
+
+
+def process_variation(variation_elem: etree.Element) -> ParsedVariant | None:
     allele_record = variation_elem.find(".//SimpleAllele")
     if allele_record is None:
-        return
+        return None
 
-    hgvs_c, hgvs_p = _get_mane_hgvs(allele_record)
-    if not hgvs_c:
-        return
+    transcript_annotations = _get_mane_hgvs(allele_record)
+    if not transcript_annotations:
+        return None
 
-    # 3. Extract Basic Variation Data
-    var_id = variation_elem.get("VariationID")
+    var_id_raw = variation_elem.get("VariationID")
+    if not var_id_raw:
+        return None
+        
+    var_id = int(var_id_raw)
+    
     last_updated = variation_elem.get("DateLastUpdated")
     variation_type = normalize_var_type(variation_elem.get("VariationType"))
+
+    chromosome, position, ref_allele, alt_allele = parse_variation_coding(allele_record)
     
     logging.info(f"Processing variation with ID: {var_id}")
 
-    genes, locs = _get_genes_and_locs(allele_record)
+    genes = _get_genes(allele_record)
+    dbsnp = _get_dbsnp(allele_record)
 
-    # 5. Extract dbSNP rsID
-    db_snp = _get_dbsnp(allele_record)
+    classification = variation_elem.findtext(".//Classifications/GermlineClassification/Description")
+    
+    disease = None
+    element_val = variation_elem.find(".//Classifications/GermlineClassification//Trait/Name/ElementValue")
+    if element_val is not None:
+        disease = element_val.text
 
     return ParsedVariant(
         variation_id=var_id,
         variation_type=variation_type,
         last_updated=last_updated,
         genes=genes,
-        hgvsc=hgvs_c,
-        hgvsp=hgvs_p,
-        dbsnp=db_snp,
-        locations=locs
+        position=position,
+        chromosome=chromosome,
+        ref_allele=ref_allele,
+        alt_allele=alt_allele,
+        transcript_annotations=transcript_annotations,
+        dbsnp=dbsnp,
+        classification=classification,
+        disease=disease
     )
 
-def _get_mane_hgvs(allele_record: etree.Element) -> tuple:
-    """Finds the first coding HGVS with a MANESelect nucleotide expression."""
+
+def _get_mane_hgvs(allele_record: etree.Element) -> list[TranscriptAnnotation]:
+    """Finds all coding HGVS annotations tagged with MANESelect='true' using XML attributes."""
+    annotations = []
     
     for hgvs in allele_record.findall("HGVSlist/HGVS"):
         if hgvs.get("Type") != "coding":
@@ -68,62 +119,61 @@ def _get_mane_hgvs(allele_record: etree.Element) -> tuple:
             
         nuc_expr = hgvs.find("NucleotideExpression")
         if nuc_expr is not None and nuc_expr.get("MANESelect") == "true":
-            # .findtext safely returns the string or None if the tag doesn't exist
-            hgvs_c = nuc_expr.findtext("Expression")
+            transcript_base = nuc_expr.get("sequenceAccession")
+            transcript_version = nuc_expr.get("sequenceVersion")
+            hgvs_c = nuc_expr.get("change")
             
+            hgvs_p = None
             prot_expr = hgvs.find("ProteinExpression")
-            hgvs_p = prot_expr.findtext("Expression") if prot_expr is not None else None
+            if prot_expr is not None:
+                hgvs_p = prot_expr.get("change")
+                
+                if not hgvs_p:
+                    full_hgvs_p = prot_expr.findtext("Expression")
+                    if full_hgvs_p:
+                        hgvs_p = full_hgvs_p.split(":")[-1] if ":" in full_hgvs_p else full_hgvs_p
+
+            version_int = int(transcript_version) if transcript_version and transcript_version.isdigit() else None
+
+            annotations.append(
+                TranscriptAnnotation(
+                    transcript_base=transcript_base,
+                    transcript_version=version_int,
+                    hgvs_c=hgvs_c,
+                    hgvs_p=hgvs_p
+                )
+            )
             
-            return hgvs_c, hgvs_p
-            
-    return None, None
+    return annotations
 
 
-def _get_genes_and_locs(allele_record: etree.Element) -> tuple:
-    """Extracts gene symbols and their GRCh38 sequence locations."""
+def _get_genes(allele_record: etree.Element) -> list[str]:
+    """Extracts gene symbols."""
     genes = []
-    locs = {}
-    
     for gene in allele_record.findall("GeneList/Gene"):
         symbol = gene.get("Symbol")
-        if not symbol:
-            continue
-            
-        genes.append(symbol)
-        
-        # Use a list comprehension to concisely filter GRCh38 locations
-        grch38_locs = [
-            (loc.get("Chr"), loc.get("start"))
-            for loc in gene.findall("Location/SequenceLocation")
-            if loc.get("Assembly") == "GRCh38"
-        ]
-        
-        if grch38_locs:
-            locs[symbol] = grch38_locs
-            for chrom, pos in grch38_locs:
-                print(f"Gene: {symbol}, Chromosome: {chrom}, Position: {pos}")
-                
-    return genes, locs
+        if symbol:
+            genes.append(symbol)
+    return genes
 
 
-def _get_dbsnp(allele_record: etree.Element) -> str:
+def _get_dbsnp(allele_record: etree.Element) -> str | None:
     """Extracts the rsID from dbSNP."""
     for xref in allele_record.findall("XRefList/XRef"):
         if xref.get("DB") == "dbSNP" and xref.get("Type") == "rs":
-            return xref.get("ID")
+            return f"rs{xref.get('ID')}"
     return None
+
 
 def parse_clinvar_xml(file_path: str):
     release = etree.iterparse(file_path, events=("start",), tag="ClinVarVariationRelease")
-    _, release = next(release)
-    print(release.get("ReleaseDate"))
+    _, release_elem = next(release)
+    print(f"ClinVar Release Date: {release_elem.get('ReleaseDate')}")
 
     context = etree.iterparse(file_path, events=("end",), tag="VariationArchive")
     for event, elem in context:
-        
         parsed = process_variation(elem)
         if parsed:
             yield parsed
 
         elem.clear()
-    
