@@ -1,3 +1,4 @@
+from datetime import date
 import logging
 import re
 from dataclasses import dataclass
@@ -49,7 +50,7 @@ def parse_variation_coding(variation_elem: etree.Element) -> tuple[str | None, i
 
     for loc in variation_elem.findall("Location/SequenceLocation"):
         if loc.get("Assembly") == "GRCh38":
-            chromosome = loc.get("Chr")
+            chromosome = f"chr{loc.get('Chr')}"
             position_text = loc.get("positionVCF") or loc.get("start")
             ref_allele = loc.get("referenceAlleleVCF")
             alt_allele = loc.get("alternateAlleleVCF")
@@ -76,7 +77,8 @@ def process_variation(variation_elem: etree.Element) -> ParsedVariant | None:
         
     var_id = int(var_id_raw)
     
-    last_updated = variation_elem.get("DateLastUpdated")
+    last_updated_raw = variation_elem.get("DateLastUpdated")
+    last_updated = last_updated_raw.strip() if last_updated_raw else date.today().isoformat()
     variation_type = normalize_var_type(variation_elem.get("VariationType"))
 
     chromosome, position, ref_allele, alt_allele = parse_variation_coding(allele_record)

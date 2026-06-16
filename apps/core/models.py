@@ -1,6 +1,5 @@
 from django.db import models
 
-
 class Patient(models.Model):
     name = models.CharField(max_length=120, unique=True)
 
@@ -107,7 +106,7 @@ class PatientVariant(models.Model):
     variant = models.ForeignKey(GeneVariant, on_delete=models.CASCADE)
     
     zygosity = models.CharField(max_length=32, blank=True)
-    category = models.CharField(max_length=80, blank=True) # e.g., Lab's specific pathogenic call
+    category = models.FloatField(null=True, blank=True) # e.g., Lab's specific pathogenic call
     comment = models.TextField(blank=True)
     
     # original hgvs from excel

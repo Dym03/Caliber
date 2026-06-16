@@ -10,7 +10,6 @@ from django.views.decorators.http import require_POST
 from apps.core.management.commands.init_db import parse_df, sheet_exists
 from apps.core.models import PatientVariant
 
-
 def search_variants(request):
     variant = request.GET.get("variant", "").strip()
     gene = request.GET.get("gene", "").strip()
@@ -21,7 +20,6 @@ def search_variants(request):
 
     filters = Q()
     if gene:
-        # 1. Changed 'gene' to 'genes' to follow the ManyToMany field name
         filters &= Q(variant__genes__symbol__icontains=gene)
     if dbsnp:
         filters &= Q(variant__dbsnp__icontains=dbsnp)
@@ -33,10 +31,15 @@ def search_variants(request):
             | Q(reported_hgvs_c__icontains=variant)
         )
 
-    # 2. Replaced 'variant__gene' in select_related with 'variant'
-    # 3. Added 'variant__genes' to prefetch_related (ManyToMany requires prefetch)
+    # OPTIMIZATION: select_related fetches the 1-to-1 clinvar_entry and foreign keys in ONE query.
+    # prefetch_related efficiently handles the 1-to-many annotations and many-to-many genes.
     queryset = (
-        PatientVariant.objects.select_related("variant", "report")
+        PatientVariant.objects.select_related(
+            "variant", 
+            "variant__clinvar_entry", 
+            "report", 
+            "report__patient"
+        )
         .prefetch_related("variant__annotations", "variant__genes")
         .filter(filters)
         .distinct()
@@ -45,26 +48,42 @@ def search_variants(request):
 
     results = []
     for item in queryset:
+        # Resolve transcript annotations
         transcripts = [
             f"{a.transcript_base or ''}.{a.transcript_version or ''}:{a.hgvs_c}".strip(".:")
             for a in item.variant.annotations.all()
         ]
 
-        # 4. Extract all associated gene symbols into a list or a joined string
         gene_symbols = [g.symbol for g in item.variant.genes.all()]
 
+        # Safely fetch the OneToOne ClinVar entry if it exists for this genomic variant
+        clinvar_entry = getattr(item.variant, "clinvar_entry", None)
+        
+        clinvar_data = None
+        if clinvar_entry:
+            # Reconstruct the classification string from your Enum using the float score if needed, 
+            # or just return the structural details directly.
+            clinvar_data = {
+                "id": clinvar_entry.clinvar_id,
+                "score": clinvar_entry.clinvar_classification,  # Your 1.0 - 5.0 float
+                "last_updated": clinvar_entry.last_updated.isoformat() if clinvar_entry.last_updated else None,
+            }
+
         results.append({
-			"patient_id": item.report.patient.name,
-            # Joins multiple genes with a comma (e.g., "GENEA, GENEB") or send as an array
+            "patient_id": item.report.patient.name,
             "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
             "all_genes": gene_symbols, 
             "variant": item.reported_hgvs_c or (transcripts[0] if transcripts else ""),
             "all_transcripts": transcripts,
             "dbsnp": item.variant.dbsnp,
+            "gnomAD": item.variant.gnomAD,  # Pulled from your clean GeneVariant model fields
             "chromosome": item.variant.chromosome,
             "position": item.variant.position,
             "updated_at": item.report.updated_at.isoformat(),
-            "category": item.category or "",
+            "category": item.category or "", # Patient variant specific category
+            
+            # This will be null if ClinVar hasn't cataloged this coordinate yet
+            "clinvar": clinvar_data, 
         })
 
     return JsonResponse({"results": results})

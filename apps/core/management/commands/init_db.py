@@ -7,6 +7,7 @@ import polars as pl
 from openpyxl import load_workbook
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from apps.core.enums import ClassificationEnum
 from apps.core.models import Gene, GeneVariant, GeneticReport, Patient, PatientVariant, TranscriptAnnotation
 
 # Dedicated in-memory caches to prevent redundant DB lookups inside the loop
@@ -69,9 +70,11 @@ def parse_row(row) -> dict:
     cleaned_data["alt_allele"] = clean_str(row.get("Alternate") or row.get("Alt"))
     cleaned_data["dbSNP"] = clean_str(row.get("VEP dbSNP ID", "") or row.get("dbSNP", ""))
     cleaned_data["hgvs_coding"] = clean_str(row.get("HGVSc") or row.get("Transcript"))
-    cleaned_data["hgvs_coding"] += clean_str(row.get("Nucleotide", ""))
+    nucleotide = clean_str(row.get("Nucleotide", ""))
+    if nucleotide:
+        cleaned_data["hgvs_coding"] += f":{nucleotide}"
     cleaned_data["hgvs_p"] = clean_str(row.get("HGVSp", "") or row.get("AA Change", ""))
-    cleaned_data["category"] = clean_str(row.get("Kategorie"))
+    cleaned_data["category"] = ClassificationEnum.from_excel_string(clean_str(row.get("Kategorie"))).score
     cleaned_data["comment"] = clean_str(row.get("Komentář", ""))
     cleaned_data["exon"] = clean_str(row.get("Exon"))
     cleaned_data["zygosity"] = clean_str(row.get("Genotype") or row.get("Zygosity"))

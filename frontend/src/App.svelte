@@ -4,6 +4,12 @@
   import UploadPanel from './components/UploadPanel.svelte'
   import ResultsTable from './components/ResultsTable.svelte'
 
+  type ClinVarData = {
+    id: string
+    score: number
+    last_updated: string | null
+  } | null
+
   type Variant = {
     patient_id: string
     gene: string
@@ -13,6 +19,7 @@
     position: number | null
     updated_at: string
     category: string
+    clinvar: ClinVarData
   }
 
   type SearchResponse = {

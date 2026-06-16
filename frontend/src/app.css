@@ -460,7 +460,7 @@ input {
 
 .row {
   display: grid;
-  grid-template-columns: 0.8fr 1.2fr 1.6fr 1fr 0.9fr 1fr 1.1fr 0.9fr;
+  grid-template-columns: 0.8fr 1.2fr 1.6fr 1fr 0.9fr 1fr 1.1fr 0.9fr 0.8fr;
   gap: 10px;
   align-items: center;
   padding: 12px 14px;

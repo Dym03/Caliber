@@ -1,4 +1,10 @@
 <script lang="ts">
+  type ClinVarData = {
+    id: string
+    score: number
+    last_updated: string | null
+  } | null
+
   type Variant = {
     patient_id: string
     gene: string
@@ -7,7 +13,8 @@
     chromosome: string
     position: number | null
     updated_at: string
-    category: string
+    category: number | null
+    clinvar: ClinVarData
   }
 
   interface Props {
@@ -31,18 +38,18 @@
     return `${day}-${month}-${year}`
   }
 
-  const categoryClass = (value: string) => {
-    const code = value.trim()
-    if (code === '0') return 'category c0'
-    if (code === '1') return 'category c1'
-    if (code === '1-2') return 'category c1-2'
-    if (code === '2') return 'category c2'
-    if (code === '2-3') return 'category c2-3'
-    if (code === '3') return 'category c3'
-    if (code === '3-4') return 'category c3-4'
-    if (code === '4') return 'category c4'
-    if (code === '4-5') return 'category c4-5'
-    if (code === '5') return 'category c5'
+  const categoryClass = (value: number | null | undefined) => {
+    if (value === null || value === undefined) return 'category'
+    if (value === 0) return 'category c0'
+    if (value === 1) return 'category c1'
+    if (value === 1.5) return 'category c1-2'
+    if (value === 2) return 'category c2'
+    if (value === 2.5) return 'category c2-3'
+    if (value === 3) return 'category c3'
+    if (value === 3.5) return 'category c3-4'
+    if (value === 4) return 'category c4'
+    if (value === 4.5) return 'category c4-5'
+    if (value === 5) return 'category c5'
     return 'category'
   }
 </script>
@@ -67,6 +74,7 @@
       <span>Pozice</span>
       <span>Aktualizováno</span>
       <span>Kategorie</span>
+      <span>ClinVar</span>
     </div>
     {#if results.length === 0}
       <div class="row empty">
@@ -83,6 +91,7 @@
           <span>{item.position ?? '—'}</span>
           <span>{formatDate(item.updated_at)}</span>
           <span class={categoryClass(item.category)}>{item.category || '—'}</span>
+          <span class={categoryClass(item.clinvar?.score)}><a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/{item.clinvar?.id || ""}">{item.clinvar?.score || '—'}</a></span>
         </div>
       {/each}
     {/if}

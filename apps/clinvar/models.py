@@ -14,6 +14,5 @@ class ClinVarGeneVariant(models.Model):
         related_name="clinvar_entry",
     )
     clinvar_id = models.CharField(max_length=64)
-    clinvar_url = models.URLField(max_length=300, blank=True)
-    clinvar_category = models.CharField(max_length=80, blank=True) # ClinVar's pathogenicity call
+    clinvar_classification = models.FloatField(null=True, blank=True)
     last_updated = models.DateTimeField(null=True, blank=True)
