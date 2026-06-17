@@ -1,7 +1,8 @@
 from datetime import date
 import logging
-import re
 from dataclasses import dataclass
+import gzip
+from pathlib import Path
 
 from apps.core.management.commands.init_db import normalize_var_type
 
@@ -12,6 +13,8 @@ except ImportError:
     import xml.etree.ElementTree as etree
     logging.info("running with Python's xml.etree.ElementTree")
 
+DATA_DIR = Path("data/clinvar")
+CLINVAR_ZIP_PATH = DATA_DIR / "ClinVarVCVRelease_00-latest.xml.gz"
 
 @dataclass
 class TranscriptAnnotation:
@@ -167,15 +170,16 @@ def _get_dbsnp(allele_record: etree.Element) -> str | None:
     return None
 
 
-def parse_clinvar_xml(file_path: str):
-    release = etree.iterparse(file_path, events=("start",), tag="ClinVarVariationRelease")
-    _, release_elem = next(release)
-    print(f"ClinVar Release Date: {release_elem.get('ReleaseDate')}")
+def parse_clinvar_xml():
+    with gzip.open(CLINVAR_ZIP_PATH, "rb") as f:
+        release = etree.iterparse(f, events=("start",), tag="ClinVarVariationRelease")
+        _, release_elem = next(release)
+        print(f"ClinVar Release Date: {release_elem.get('ReleaseDate')}")
 
-    context = etree.iterparse(file_path, events=("end",), tag="VariationArchive")
-    for event, elem in context:
-        parsed = process_variation(elem)
-        if parsed:
-            yield parsed
+        context = etree.iterparse(f, events=("end",), tag="VariationArchive")
+        for event, elem in context:
+            parsed = process_variation(elem)
+            if parsed:
+                yield parsed
 
-        elem.clear()
+            elem.clear()

@@ -1,6 +1,7 @@
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.clinvar.services.downloader import download_monthly_release
 from apps.clinvar.services.importer import ClinVarBulkImporter
 from apps.clinvar.services.parser import parse_clinvar_xml
 
@@ -8,7 +9,7 @@ import logging
 
 from apps.clinvar.services.transformer import transform_clinvar_variant
 
-logger = logging.getLogger("clinvar_sync")
+logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
 
@@ -24,8 +25,12 @@ class Command(BaseCommand):
         
         parsed_counter = 0
         try:
+            logger.info("Starting ClinVar synchronization process...")
+            download_monthly_release()
+            logger.info("Download complete. Beginning XML parsing and database synchronization...")
+    
             # Streams elements row-by-row utilizing our generator pipeline
-            for variant in parse_clinvar_xml("data/clinvar_test.xml"):
+            for variant in parse_clinvar_xml():
                 variant = transform_clinvar_variant(variant)  # Optional: Apply any necessary transformations to the parsed data before importing
                 # --- TODO 4: Handle inconsistencies/errors ---
                 # The importer internal pipeline safely discards records missing 
@@ -34,7 +39,7 @@ class Command(BaseCommand):
                 
                 parsed_counter += 1
                 if parsed_counter % 25000 == 0:
-                    self.stdout.write(f"Parsed and validated {parsed_counter} records...")
+                    logger.info(f"Parsed and validated {parsed_counter} records...")
 
             # Clean any remaining data packets left inside the ingestion queue array
             importer.flush()

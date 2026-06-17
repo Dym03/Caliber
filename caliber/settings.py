@@ -1,3 +1,5 @@
+import json
+import logging
 import os 
 import environ
 
@@ -118,3 +120,53 @@ STATICFILES_DIRS = [
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+LOG_LEVEL = env("LOG_LEVEL", default="INFO").upper()
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        log_payload = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "line_number": record.lineno,
+        }
+        if record.exc_info:
+            log_payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_payload)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "json_prod": {
+            "()": JSONFormatter,
+        },
+        "readable_dev": {
+            "format": "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)d]: %(message)s",
+            "datefmt": "%H:%M:%S",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            # Use JSON formatting for production containers, readable text for local debugging
+            "formatter": "readable_dev" if DEBUG else "json_prod",
+        },
+    },
+    "loggers": {
+        # Root logger captures everything from Django internals
+        "": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+        },
+        # Dedicated app logger captures fine details from your data pipeline specifically
+        "apps.clinvar": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+            "propagate": False, # Prevents double logging back to the root shell handler
+        },
+    },
+}
