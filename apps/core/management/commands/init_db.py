@@ -37,16 +37,24 @@ def normalize_var_type(var_type: str) -> str:
     if var_type is None:
         return ""
     var_type = var_type.lower()
-    if var_type in ["single nucleotide variant", "snv"]:
+    if var_type in ["single nucleotide variant", "snv", "snp", "single nucleotide polymorphism"]:
         return "SNV"
-    elif var_type in ["snp", "single nucleotide polymorphism"]:
-        return "SNP"
+    # elif var_type in ["snp", "single nucleotide polymorphism"]: // TODO Ask if this is a wanted mapping - because this kinda breaks the unique constraints for clinvar mapping
+    #     return "SNP"
     elif var_type in ["deletion", "del"]:
         return "DEL"
     elif var_type in ["insertion", "ins"]:
         return "INS"
     elif var_type in ["duplication", "dup"]:
         return "DUP"
+    elif var_type in ["inversion", "inv"]:
+        return "INV"
+    elif var_type in ["microsatellite", "repeat expansion"]:
+        return "STR"
+    elif var_type in ["haplotype"]:
+        return "HAPLOTYPE"
+    elif var_type in ["compoundheterozygous"]:
+        return "COMPOUND_HET"
     elif var_type in ["indel"]:
         return "INDEL"
     else:
@@ -88,6 +96,8 @@ def parse_row(row) -> dict:
 def persist_row(data: dict, file_name: str):
     if data["gene_symbol"] == "BTD" and data["ref_allele"] == "G" and data["alt_allele"] == "C":
         print(data)
+    if data["variation_type"] == "SNV" and data["chromosome"] == "chr1" and data["position"] == 1520206 and data["ref_allele"] == "C" and data["alt_allele"] == "T":
+        print(data)
 
     # 1. Patient Lookup
     if data["patient_id"] not in patient_cache:
@@ -117,6 +127,7 @@ def persist_row(data: dict, file_name: str):
                 "dbsnp": data["dbSNP"],
             }
         )
+        # TODO Handle the case where the variant already exists but the dbSNP or gnomAD fields need to be updated. This could be done with an update_or_create pattern or a separate update query if needed.
         variant_cache[variant_key] = gene_variant
     else:
         gene_variant = variant_cache[variant_key]

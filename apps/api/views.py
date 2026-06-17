@@ -84,6 +84,7 @@ def search_variants(request):
             
             # This will be null if ClinVar hasn't cataloged this coordinate yet
             "clinvar": clinvar_data, 
+			"comment": item.comment or None,  # Optional comment field
         })
 
     return JsonResponse({"results": results})
