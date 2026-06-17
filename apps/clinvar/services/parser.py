@@ -6,12 +6,14 @@ from pathlib import Path
 
 from apps.core.management.commands.init_db import normalize_var_type
 
+logger = logging.getLogger(__name__)
+
 try:
     from lxml import etree
-    logging.info("running with lxml.etree")
+    logger.info("running with lxml.etree")
 except ImportError:
     import xml.etree.ElementTree as etree
-    logging.info("running with Python's xml.etree.ElementTree")
+    logger.info("running with Python's xml.etree.ElementTree")
 
 DATA_DIR = Path("data/clinvar")
 CLINVAR_ZIP_PATH = DATA_DIR / "ClinVarVCVRelease_00-latest.xml.gz"
@@ -86,7 +88,7 @@ def process_variation(variation_elem: etree.Element) -> ParsedVariant | None:
 
     chromosome, position, ref_allele, alt_allele = parse_variation_coding(allele_record)
     
-    logging.info(f"Processing variation with ID: {var_id}")
+    logger.info(f"Processing variation with ID: {var_id}")
 
     genes = _get_genes(allele_record)
     dbsnp = _get_dbsnp(allele_record)
@@ -172,14 +174,35 @@ def _get_dbsnp(allele_record: etree.Element) -> str | None:
 
 def parse_clinvar_xml():
     with gzip.open(CLINVAR_ZIP_PATH, "rb") as f:
-        release = etree.iterparse(f, events=("start",), tag="ClinVarVariationRelease")
-        _, release_elem = next(release)
-        print(f"ClinVar Release Date: {release_elem.get('ReleaseDate')}")
-
-        context = etree.iterparse(f, events=("end",), tag="VariationArchive")
+        context = etree.iterparse(
+            f, 
+            events=("end",), 
+            tag=("ClinVarVariationRelease", "VariationArchive")
+        )
+        
         for event, elem in context:
-            parsed = process_variation(elem)
-            if parsed:
-                yield parsed
+            # 1. Capture the global release metadata when its closing tag is reached
+            if elem.tag == "ClinVarVariationRelease":
+                release_date = elem.get("ReleaseDate")
+                logger.info(f"--- ClinVar Release Date: {release_date} ---")
+                elem.clear()
+                
+            # 2. Extract, process, and yield individual variants
+            elif elem.tag == "VariationArchive":
+                parsed = process_variation(elem)
+                if parsed:
+                    yield parsed
 
-            elem.clear()
+                # --- CRITICAL MEMORY MANAGEMENT FOR 69GB FILES ---
+                # Wipe the children/text of the current element
+                elem.clear()
+                
+                # Sever the link to all preceding siblings in the XML tree.
+                # This allows Python's Garbage Collector to free the parsed chunks.
+                parent = elem.getparent()
+                if parent is not None:
+                    while elem.getprevious() is not None:
+                        del parent[0]
+
+        # Explicitly clean up the iterator context when finished
+        del context
