@@ -1,24 +1,6 @@
 <script lang="ts">
   import VariantModal from './VariantModal.svelte';
-
-  type ClinVarData = {
-    id: string
-    score: number
-    last_updated: string | null
-  } | null
-
-  type Variant = {
-    patient_id: string
-    gene: string
-    variant: string
-    dbsnp: string
-    chromosome: string
-    position: number | null
-    updated_at: string
-    category: number | null
-    clinvar: ClinVarData
-    comment?: string | null 
-  }
+  import type { Variant } from '../types/variant';
 
   interface Props {
     results: Variant[]
