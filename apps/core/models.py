@@ -47,6 +47,11 @@ class GeneVariant(models.Model):
             )
         ]
 
+        indexes = [
+            models.Index(fields=["dbsnp"]),
+            models.Index(fields=["chromosome", "position"]),
+        ]
+
 class TranscriptAnnotation(models.Model):
     """
     Holds the 1-to-many relationship of transcripts to a variant.
@@ -67,6 +72,11 @@ class TranscriptAnnotation(models.Model):
                 fields=["variant", "hgvs_c"], 
                 name="unique_variant_transcript_annotation"
             )
+        ]
+
+        indexes = [
+            models.Index(fields=["hgvs_c"]),
+            models.Index(fields=["hgvs_p"]),
         ]
 
 class GeneticReport(models.Model):

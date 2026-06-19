@@ -5,6 +5,7 @@ export type ClinVarData = {
   } | null
 
 export type Variant = {
+    source: 'clinic' | 'clinvar_catalog'
     patient_id: string
     gene: string
     variant: string
