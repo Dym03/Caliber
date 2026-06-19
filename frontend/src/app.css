@@ -747,6 +747,30 @@ input {
   font-size: 0.85rem;
 }
 
+.nav-links {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.nav-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+/* When the view is active, morph it to use your deep teal/accent style definitions */
+.nav-btn.active {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+}
+
+.nav-btn.active:hover {
+  box-shadow: 0 8px 20px -12px rgba(63, 111, 116, 0.7);
+}
+
 @keyframes lift {
   from {
     opacity: 0;
@@ -776,5 +800,11 @@ input {
 
   .row.head {
     display: none;
+  }
+
+  .nav-links {
+    width: 100%;
+    justify-content: flex-start;
+    margin-top: 8px;
   }
 }

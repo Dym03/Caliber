@@ -89,7 +89,7 @@ def parse_excel_hgvs(excel_string):
 def parse_row(row) -> dict:
     cleaned_data = {}
     cleaned_data["patient_id"] = clean_str(row.get("Name"))
-    cleaned_data["gene_symbol"] = clean_str(row.get("Symbol") or row.get("Gene"))
+    cleaned_data["gene_symbol"] = clean_str(row.get("Symbol") or row.get("Gene")) # TODO Genes are sometimes listed as a list, separated by /, not ideal
     cleaned_data["variation_type"] = normalize_var_type(
         row.get("Variant_class") or row.get("Variation Type")
     )
@@ -100,7 +100,7 @@ def parse_row(row) -> dict:
     cleaned_data["ref_allele"] = clean_str(row.get("Reference") or row.get("Ref"))
     cleaned_data["alt_allele"] = clean_str(row.get("Alternate") or row.get("Alt"))
     cleaned_data["dbSNP"] = clean_str(
-        row.get("VEP dbSNP ID", "") or row.get("dbSNP", "")
+        row.get("VEP dbSNP ID", "") or row.get("dbSNP", "") # TODO IF CMON are wanted, because right now we have some dbSNP with comma separated multiple IDs, which is not ideal for the unique constraint and the mapping to clinvar variants. We should ask if we want to split those into multiple dbSNPs or just take the first one or something else
     )
     cleaned_data["hgvs_coding"] = clean_str(row.get("HGVSc") or row.get("Transcript"))
     nucleotide = clean_str(row.get("Nucleotide", ""))
@@ -127,10 +127,6 @@ def parse_row(row) -> dict:
 
 
 def persist_row(data: dict, file_name: str):
-    # 1. Patient Lookup
-    if data["variation_type"] == "SNV" and data["chromosome"] == "chr1" and data["position"] == 1520206 and data["ref_allele"] == "C" and data["alt_allele"] == "T":
-        print(data)
-
     if data["patient_id"] not in patient_cache:
         patient, _ = Patient.objects.get_or_create(name=data["patient_id"])
         patient_cache[data["patient_id"]] = patient

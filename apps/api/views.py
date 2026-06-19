@@ -1,16 +1,20 @@
+import logging
 import os
 import tempfile
-
+import io
+from openpyxl import load_workbook
 import polars as pl
 from django.db import transaction
-from django.db.models import Q
-from django.http import JsonResponse
+from django.db.models import Q, OuterRef, Subquery
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 from apps.core.management.commands.init_db import parse_df, sheet_exists
 from apps.core.models import Gene, GeneVariant, PatientVariant
+from apps.core.management.commands.init_db import parse_excel_hgvs
 
+logger = logging.getLogger(__name__)
 
 def search_variants(request):
     """
@@ -264,3 +268,210 @@ def upload_variants_file(request):
             "files": results,
         }
     )
+
+
+@require_POST
+def classify_variants(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Requires POST method."}, status=405)
+
+    uploaded_file = request.FILES.get("file")
+    if not uploaded_file:
+        return JsonResponse({"error": "No file provided."}, status=400)
+
+    allowed_extensions = {".xlsx", ".xls", ".csv"}
+    name_lower = uploaded_file.name.lower()
+    if not any(name_lower.endswith(ext) for ext in allowed_extensions):
+        return JsonResponse(
+            {"error": f"Unsupported file type: {uploaded_file.name}."},
+            status=400,
+        )
+    
+    try:        
+        file_bytes = uploaded_file.read()
+        df = pl.read_excel(io.BytesIO(file_bytes))
+        
+        gene_col = None
+        hgsv_c_col = None
+        dbsnp_col = None
+
+        for orig_col in df.columns:
+            low = orig_col.lower()
+            if low in ["symbol", "gene"]:
+                gene_col = orig_col
+            elif low in ["nucleotide"]:
+                hgsv_c_col = orig_col
+            elif low in ["hgvsc"]:
+                hgsv_c_col = orig_col
+            elif low in ["vep dbsnp id", "dbsnp"]:
+                dbsnp_col = orig_col
+
+        if not (gene_col or hgsv_c_col or dbsnp_col):
+            return JsonResponse({
+                "error": "Chybná struktura Excelu. Tabulka musí obsahovat alespoň jeden ze sloupců: Gen, Varianta, dbSNP."
+            }, status=400)
+        
+        unique_dbsnps = [
+            str(x).strip().lower() 
+            for x in df[dbsnp_col].drop_nulls().unique().to_list() 
+            if str(x).strip() and x != "-"
+        ]
+        
+        raw_variants = [
+            str(x).strip() 
+            for x in df[hgsv_c_col].drop_nulls().unique().to_list() 
+            if str(x).strip()
+        ]
+        
+        unique_variants = []
+        for v in raw_variants:
+            _, _, hgvs = parse_excel_hgvs(v)
+            if hgvs:
+                unique_variants.append(hgvs)
+        
+
+        dbsnp_map = {}
+        hgvs_map = {}
+
+        db_filters = Q()
+        if unique_dbsnps:
+            db_filters |= Q(dbsnp__in=unique_dbsnps)
+        if unique_variants:
+            db_filters |= Q(annotations__hgvs_c__in=unique_variants)
+
+        if db_filters:
+            latest_clinic_category = Subquery(
+                PatientVariant.objects.filter(
+                    variant=OuterRef("pk"),
+                    category__isnull=False
+                )
+                .order_by("-report__updated_at")
+                .values("category")[:1]
+            )
+
+            matched_variants = (
+                GeneVariant.objects.select_related("clinvar_entry")
+                .prefetch_related("annotations", "genes")
+                .annotate(latest_clinic_cat=latest_clinic_category)
+                .filter(db_filters)
+                .distinct()
+            )
+
+            def format_classification(clinic_val, clinvar_val):
+                if clinic_val is not None:
+                    c_str = str(int(clinic_val)) if clinic_val.is_integer() else str(clinic_val)
+                else:
+                    c_str = None
+
+                if clinvar_val is not None:
+                    cv_str = str(int(clinvar_val)) if clinvar_val.is_integer() else str(clinvar_val)
+                else:
+                    cv_str = None
+
+                if c_str and cv_str:
+                    if c_str == cv_str:
+                        return c_str, "Shoda (Klinika i ClinVar)"
+                    else:
+                        return f"Klinika: {c_str} / ClinVar: {cv_str}", "Diskrepance (Neshoda hodnocení)"
+                elif c_str:
+                    return c_str, "Pouze v interní klinické DB"
+                elif cv_str:
+                    return cv_str, "Pouze v ClinVar katalogu"
+                return "—", "Nenalezeno žádné hodnocení"
+            
+            for gv in matched_variants:
+                clinvar_score = gv.clinvar_entry.clinvar_classification if hasattr(gv, "clinvar_entry") else None
+                clinvar_id = gv.clinvar_entry.clinvar_id if hasattr(gv, "clinvar_entry") else "—"
+                clinic_score = gv.latest_clinic_cat  
+
+                final_score, match_status = format_classification(clinic_score, clinvar_score)
+
+                variant_data = {
+                    "final_score": final_score,
+                    "clinvar_id": clinvar_id,
+                    "status": match_status
+                }
+
+                if gv.dbsnp:
+                    dbsnp_map[gv.dbsnp.replace('\xa0', ' ').strip().lower()] = variant_data
+
+                variant_genes = [g.symbol.replace('\xa0', ' ').strip().lower() for g in gv.genes.all()]
+                
+                for ann in gv.annotations.all():
+                    if ann.hgvs_c:
+                        c_clean = ann.hgvs_c.replace('\xa0', ' ').strip()
+                        # Záložní klíč bez genu pro případ prázdného variant_genes
+                        hgvs_map[c_clean] = variant_data
+                        for g_sym in variant_genes:
+                            hgvs_map[(g_sym, c_clean)] = variant_data
+                    if ann.hgvs_p:
+                        p_clean = ann.hgvs_p.replace('\xa0', ' ').strip()
+                        hgvs_map[p_clean] = variant_data
+                        for g_sym in variant_genes:
+                            hgvs_map[(g_sym, p_clean)] = variant_data
+
+        uploaded_file.seek(0)
+        wb = load_workbook(io.BytesIO(file_bytes))
+        ws = wb.active
+
+        orig_headers = [cell.value for cell in ws[1]]
+        openpyxl_gene_idx = openpyxl_variant_idx = openpyxl_dbsnp_idx = None
+
+        for idx, h_name in enumerate(orig_headers, start=1):
+            if not h_name:
+                continue
+            low = str(h_name).lower()
+            if low in ["symbol", "gene"]:
+                openpyxl_gene_idx = idx
+            elif low in ["nucleotide", "hgvsc"]:
+                openpyxl_variant_idx = idx
+            elif low in ["vep dbsnp id", "dbsnp"]:
+                openpyxl_dbsnp_idx = idx
+        
+        start_col = len(orig_headers) + 1
+        ws.cell(row=1, column=start_col, value="Zhodnoceni_Patogenity")
+        ws.cell(row=1, column=start_col + 1, value="ClinVar_ID")
+        ws.cell(row=1, column=start_col + 2, value="Status_Kontroly")
+
+        for row_num in range(2, ws.max_row + 1):
+            gene_val = ws.cell(row=row_num, column=openpyxl_gene_idx).value if openpyxl_gene_idx else None
+            variant_val = ws.cell(row=row_num, column=openpyxl_variant_idx).value if openpyxl_variant_idx else None
+            dbsnp_val = ws.cell(row=row_num, column=openpyxl_dbsnp_idx).value if openpyxl_dbsnp_idx else None
+
+            g_clean = str(gene_val).replace('\xa0', ' ').strip().lower() if gene_val else ""
+            d_clean = str(dbsnp_val).replace('\xa0', ' ').strip().lower() if dbsnp_val else ""
+            
+            # Očištění buňky před vyhledáním v dictionary mapě hgvs_map
+            _, _, hgvs = parse_excel_hgvs(str(variant_val)) if variant_val else ""
+            logger.info(f"Processing row {row_num}: Gene='{gene_val}', Variant='{variant_val}', dbSNP='{dbsnp_val}' -> Cleaned Gene='{g_clean}', Cleaned Variant='{hgvs}', Cleaned dbSNP='{d_clean}'")
+
+            match = None
+            if d_clean and d_clean in dbsnp_map:
+                match = dbsnp_map[d_clean]
+            elif g_clean and hgvs and (g_clean, hgvs) in hgvs_map:
+                match = hgvs_map[(g_clean, hgvs)]
+            elif hgvs and hgvs in hgvs_map:
+                match = hgvs_map[hgvs]
+
+            if match:
+                ws.cell(row=row_num, column=start_col, value=match["final_score"])
+                ws.cell(row=row_num, column=start_col + 1, value=match["clinvar_id"])
+                ws.cell(row=row_num, column=start_col + 2, value=match["status"])
+            else:
+                ws.cell(row=row_num, column=start_col, value="Neklasifikováno")
+                ws.cell(row=row_num, column=start_col + 1, value="—")
+                ws.cell(row=row_num, column=start_col + 2, value="Nenalezeno v DB")
+        
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = 'attachment; filename="analyzovaný_report.xlsx"'
+        return response
+
+    except Exception as e:
+        return JsonResponse({"error": f"Chyba serveru při analýze: {str(e)}"}, status=500)

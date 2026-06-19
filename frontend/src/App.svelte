@@ -3,6 +3,7 @@
   import SearchForm from './components/SearchForm.svelte'
   import UploadPanel from './components/UploadPanel.svelte'
   import ResultsTable from './components/ResultsTable.svelte'
+  import VariantClassifier from './components/VariantClassifier.svelte'
 
   import type { Variant } from './types/variant'
   import type { PaginationMeta } from './types/pagination'
@@ -22,6 +23,8 @@
   let results = $state<Variant[]>([])
   let meta = $state<PaginationMeta | null>(null)
   let currentPage = $state(1)
+
+  let currentView = $state<'registry' | 'batch'>('registry')
 
   // Accepts an optional page parameter argument, defaulting to page 1
   const runSearch = async (page: number = 1) => {
@@ -85,27 +88,32 @@
 </script>
 
 <div class="page">
-  <Topbar />
+  <Topbar currentView={currentView} onviewchange={(view) => currentView = view} />
+  {#if currentView === 'registry'}
+    <section class="search">
+      <SearchForm
+        bind:variantQuery
+        bind:geneQuery
+        bind:dbsnpQuery
+        {isSearching}
+        {errorMessage}
+        onsubmit={handleFormSubmit}
+        onclear={clearSearch}
+      />
+      <UploadPanel />
+    </section>
 
-  <section class="search">
-    <SearchForm
-      bind:variantQuery
-      bind:geneQuery
-      bind:dbsnpQuery
-      {isSearching}
-      {errorMessage}
-      onsubmit={handleFormSubmit}
-      onclear={clearSearch}
-    />
-    <UploadPanel />
-  </section>
-
-  <section class="grid">
-    <ResultsTable 
-      {results} 
-      {meta} 
-      onrefresh={() => runSearch(currentPage)} 
-      onpagechange={handlePageChange} 
-    />
-  </section>
+    <section class="grid">
+      <ResultsTable 
+        {results} 
+        {meta} 
+        onrefresh={() => runSearch(currentPage)} 
+        onpagechange={handlePageChange} 
+      />
+    </section>
+  {:else}
+    <section class="batch-container">
+      <VariantClassifier />
+    </section>
+  {/if}
 </div>
