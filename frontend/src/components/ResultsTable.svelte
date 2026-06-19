@@ -325,25 +325,3 @@
 {#if selectedVariant}
   <VariantModal variant={selectedVariant} onclose={closeModal} />
 {/if}
-
-<style>
-  .pagination-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 1.5rem;
-    border-top: 1px solid var(--border-color, #eee);
-  }
-  .pagination-footer .actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-  .warning-banner {
-    color: #c97d02;
-    font-weight: 500;
-  }
-  :global(.fallback-row) {
-    background-color: #faf9f6;
-    opacity: 0.9;
-  }
-</style>

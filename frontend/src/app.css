@@ -697,6 +697,56 @@ input {
   background-color: #f1f5f9; /* Subtle gray zone block indicating a click footprint */
 }
 
+.pagination-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-color, #eee);
+}
+.pagination-footer .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.warning-banner {
+  color: #c97d02;
+  font-weight: 500;
+}
+:global(.fallback-row) {
+  background-color: #faf9f6;
+  opacity: 0.9;
+}
+
+.clinvar-btn {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: none;
+  padding: 12px 20px;
+  font-size: 0.875rem;
+  color: #4f46e5;
+  background-color: #f5f3ff;
+  border: 1px solid #c7d2fe;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.clinvar-btn:hover {
+  background-color: #e0e7ff;
+  color: #4338ca;
+}
+
+.warning {
+  color: #b45309;
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 0.625rem 1rem;
+  border-radius: 6px;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
 @keyframes lift {
   from {
     opacity: 0;
