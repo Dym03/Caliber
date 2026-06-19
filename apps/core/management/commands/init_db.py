@@ -127,22 +127,10 @@ def parse_row(row) -> dict:
 
 
 def persist_row(data: dict, file_name: str):
-    if (
-        data["gene_symbol"] == "BTD"
-        and data["ref_allele"] == "G"
-        and data["alt_allele"] == "C"
-    ):
-        print(data)
-    if (
-        data["variation_type"] == "SNV"
-        and data["chromosome"] == "chr1"
-        and data["position"] == 1520206
-        and data["ref_allele"] == "C"
-        and data["alt_allele"] == "T"
-    ):
+    # 1. Patient Lookup
+    if data["variation_type"] == "SNV" and data["chromosome"] == "chr1" and data["position"] == 1520206 and data["ref_allele"] == "C" and data["alt_allele"] == "T":
         print(data)
 
-    # 1. Patient Lookup
     if data["patient_id"] not in patient_cache:
         patient, _ = Patient.objects.get_or_create(name=data["patient_id"])
         patient_cache[data["patient_id"]] = patient
@@ -170,7 +158,14 @@ def persist_row(data: dict, file_name: str):
                 "dbsnp": data["dbSNP"],
             },
         )
-        # TODO Handle the case where the variant already exists but the dbSNP or gnomAD fields need to be updated. This could be done with an update_or_create pattern or a separate update query if needed.
+        
+        if not gene_variant.gnomAD and data["gnomAD"]:
+            gene_variant.gnomAD = data["gnomAD"]
+            gene_variant.save(update_fields=["gnomAD"])
+        if not gene_variant.dbsnp and data["dbSNP"]:
+            gene_variant.dbsnp = data["dbSNP"]
+            gene_variant.save(update_fields=["dbsnp"])
+        
         variant_cache[variant_key] = gene_variant
     else:
         gene_variant = variant_cache[variant_key]
