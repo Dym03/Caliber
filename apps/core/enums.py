@@ -1,6 +1,7 @@
 import re
 from enum import Enum
 
+
 class ClassificationEnum(Enum):
     PATHOGENIC = "Pathogenic"
     PATHOGENIC_LIKELY_PATHOGENIC = "Pathogenic/Likely pathogenic"
@@ -14,7 +15,7 @@ class ClassificationEnum(Enum):
     @classmethod
     def from_clinvar_string(cls, value: str | None) -> "ClassificationEnum":
         """
-        Parses high-frequency exact matches instantly, then routes complex 
+        Parses high-frequency exact matches instantly, then routes complex
         compound terms through fallback logic. Safe for millions of rows.
         """
         if not value:
@@ -27,11 +28,16 @@ class ClassificationEnum(Enum):
             return cls._DIRECT_MAP[norm]
 
         # Step 2: Fallback logic for compound strings / low penetrance tail
-        
+
         # Unify conflicting classifications or explicit unprovided statuses
-        if "conflict" in norm or "not provided" in norm or "no classification" in norm or "[missing" in norm:
+        if (
+            "conflict" in norm
+            or "not provided" in norm
+            or "no classification" in norm
+            or "[missing" in norm
+        ):
             return cls.UNCERTAIN_SIGNIFICANCE
-        
+
         # Handle combinations of pathogenic variants
         if "pathogenic" in norm:
             if "likely" in norm and "pathogenic/likely" not in norm:
@@ -56,19 +62,19 @@ class ClassificationEnum(Enum):
 
         # Default fallback for everything else (drug response, risk factor, modifiers)
         return cls.UNCERTAIN_SIGNIFICANCE
-    
+
     @classmethod
     def from_excel_string(cls, value: str | None) -> "ClassificationEnum":
         if not value:
             return cls.UNCERTAIN_SIGNIFICANCE
         norm = value.strip()
         return cls._EXCEL_MAP.get(norm, cls.UNCERTAIN_SIGNIFICANCE)
-        
 
     @property
     def score(self) -> float:
         """Returns the numeric float score of the enum instance."""
         return self._SCORES.get(self.value, 3.0)
+
 
 ClassificationEnum._DIRECT_MAP = {
     "uncertain significance": ClassificationEnum.UNCERTAIN_SIGNIFICANCE,
@@ -94,7 +100,6 @@ ClassificationEnum._EXCEL_MAP = {
     "1": ClassificationEnum.BENIGN,
 }
 
-# 2. Attach the numeric score dictionary
 ClassificationEnum._SCORES = {
     "Pathogenic": 5.0,
     "Pathogenic/Likely pathogenic": 4.5,

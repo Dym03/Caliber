@@ -1,6 +1,6 @@
 import json
 import logging
-import os 
+import os
 import environ
 
 from pathlib import Path
@@ -72,9 +72,7 @@ WSGI_APPLICATION = "caliber.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    "default": env.db()
-}
+DATABASES = {"default": env.db()}
 
 
 # Password validation
@@ -123,6 +121,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 LOG_LEVEL = env("LOG_LEVEL", default="INFO").upper()
 
+
 class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         log_payload = {
@@ -136,6 +135,7 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info:
             log_payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(log_payload)
+
 
 LOGGING = {
     "version": 1,
@@ -166,7 +166,7 @@ LOGGING = {
         "apps.clinvar": {
             "handlers": ["console"],
             "level": LOG_LEVEL,
-            "propagate": False, # Prevents double logging back to the root shell handler
+            "propagate": False,  # Prevents double logging back to the root shell handler
         },
     },
 }

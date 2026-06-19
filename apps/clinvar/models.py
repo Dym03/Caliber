@@ -4,10 +4,12 @@ from apps.core.models import GeneVariant
 
 # Create your models here.
 
+
 class ClinVarGeneVariant(models.Model):
     """
     ClinVar-specific metadata.
     """
+
     gene_variant = models.OneToOneField(
         GeneVariant,
         on_delete=models.CASCADE,

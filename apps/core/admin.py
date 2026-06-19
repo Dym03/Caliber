@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Gene, GeneVariant, GeneticReport, Patient, PatientVariant, TranscriptAnnotation
+from .models import (
+    Gene,
+    GeneVariant,
+    GeneticReport,
+    Patient,
+    PatientVariant,
+    TranscriptAnnotation,
+)
 
 admin.site.register(Patient)
 admin.site.register(Gene)

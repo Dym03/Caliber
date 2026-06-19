@@ -11,4 +11,5 @@ dependencies = [
     "lxml>=6.1.1",
     "openpyxl>=3.1.5",
     "polars>=1.40.1",
+    "ruff>=0.15.18",
 ]
