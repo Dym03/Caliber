@@ -17,6 +17,8 @@ from apps.core.models import (
     TranscriptAnnotation,
 )
 
+logger = logging.getLogger(__name__)
+
 # Dedicated in-memory caches to prevent redundant DB lookups inside the loop
 patient_cache = {}
 gene_cache = {}
@@ -25,7 +27,6 @@ annotation_cache = {}
 variant_gene_m2m_cache = (
     set()
 )  # Tracks (variant_id, gene_id) to avoid repetitive .add() queries
-
 
 def sheet_exists(path: str, sheet: str) -> bool:
     wb = load_workbook(path, read_only=True)
@@ -85,11 +86,29 @@ def parse_excel_hgvs(excel_string):
         return match.group(1), match.group(2), match.group(3)
     return None, None, excel_string
 
+def parse_excel_dbsnp(excel_string)-> str:
+    if not excel_string:
+        return ""
+    # Split by commas and filter out any non-rs IDs
+    dbsnp_ids = [id.strip() for id in excel_string.split(",") if id.strip().startswith("rs")]
+    if len(dbsnp_ids) > 1:
+        logger.warning(
+            f"Multiple dbSNP IDs found: {dbsnp_ids}. Only the first one will be used."
+        )
+    return dbsnp_ids[0] if dbsnp_ids else ""
+
+def parse_excel_genes(excel_string) -> list:
+    if not excel_string:
+        return []
+    # Split by common delimiters and filter out empty strings
+    gene_symbols = [g.strip() for g in re.split(r"[,;/|]", excel_string) if g.strip()]
+    return gene_symbols
 
 def parse_row(row) -> dict:
     cleaned_data = {}
     cleaned_data["patient_id"] = clean_str(row.get("Name"))
-    cleaned_data["gene_symbol"] = clean_str(row.get("Symbol") or row.get("Gene")) # TODO Genes are sometimes listed as a list, separated by /, not ideal
+    cleaned_data["gene_symbols"] = parse_excel_genes(row.get("Symbol") or row.get("Gene"))
+
     cleaned_data["variation_type"] = normalize_var_type(
         row.get("Variant_class") or row.get("Variation Type")
     )
@@ -99,9 +118,10 @@ def parse_row(row) -> dict:
     )
     cleaned_data["ref_allele"] = clean_str(row.get("Reference") or row.get("Ref"))
     cleaned_data["alt_allele"] = clean_str(row.get("Alternate") or row.get("Alt"))
-    cleaned_data["dbSNP"] = clean_str(
+    cleaned_data["dbSNP"] = parse_excel_dbsnp(
         row.get("VEP dbSNP ID", "") or row.get("dbSNP", "") # TODO IF CMON are wanted, because right now we have some dbSNP with comma separated multiple IDs, which is not ideal for the unique constraint and the mapping to clinvar variants. We should ask if we want to split those into multiple dbSNPs or just take the first one or something else
     )
+    
     cleaned_data["hgvs_coding"] = clean_str(row.get("HGVSc") or row.get("Transcript"))
     nucleotide = clean_str(row.get("Nucleotide", ""))
     if nucleotide:
@@ -168,11 +188,8 @@ def persist_row(data: dict, file_name: str):
 
     # 3. Handle ManyToMany Relationship for Genes
     # Splitting by common delimiters (like commas or slashes) in case an excel row lists overlapping genes
-    gene_symbols = [
-        g.strip() for g in re.split(r"[,;/|]", data["gene_symbol"]) if g.strip()
-    ]
 
-    for symbol in gene_symbols:
+    for symbol in data["gene_symbols"]:
         if symbol not in gene_cache:
             gene, _ = Gene.objects.get_or_create(symbol=symbol)
             gene_cache[symbol] = gene

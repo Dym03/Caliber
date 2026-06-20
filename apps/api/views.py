@@ -10,7 +10,8 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
-from apps.core.management.commands.init_db import parse_df, sheet_exists
+from apps.core.enums import ClassificationEnum
+from apps.core.management.commands.init_db import parse_df, parse_excel_dbsnp, parse_excel_genes, sheet_exists
 from apps.core.models import Gene, GeneVariant, PatientVariant
 from apps.core.management.commands.init_db import parse_excel_hgvs
 
@@ -272,6 +273,9 @@ def upload_variants_file(request):
 
 @require_POST
 def classify_variants(request):
+    """
+    Handle the upload of an Excel file containing variants and classify them based on internal and ClinVar data.
+    """
     if request.method != "POST":
         return JsonResponse({"error": "Requires POST method."}, status=405)
 
@@ -311,10 +315,14 @@ def classify_variants(request):
                 "error": "Chybná struktura Excelu. Tabulka musí obsahovat alespoň jeden ze sloupců: Gen, Varianta, dbSNP."
             }, status=400)
         
+        parsed_dbsnps = [
+            parse_excel_dbsnp(str(x).strip())
+            for x in df[dbsnp_col].drop_nulls().unique().to_list()
+        ]
+
         unique_dbsnps = [
-            str(x).strip().lower() 
-            for x in df[dbsnp_col].drop_nulls().unique().to_list() 
-            if str(x).strip() and x != "-"
+            db for db in parsed_dbsnps
+            if db and db.strip() not in ["", "-", "—", "none", "nan"]
         ]
         
         raw_variants = [
@@ -357,16 +365,9 @@ def classify_variants(request):
                 .distinct()
             )
 
-            def format_classification(clinic_val, clinvar_val):
-                if clinic_val is not None:
-                    c_str = str(int(clinic_val)) if clinic_val.is_integer() else str(clinic_val)
-                else:
-                    c_str = None
-
-                if clinvar_val is not None:
-                    cv_str = str(int(clinvar_val)) if clinvar_val.is_integer() else str(clinvar_val)
-                else:
-                    cv_str = None
+            def format_classification(clinic_val, clinvar_val) -> tuple[str, str]:                
+                c_str = ClassificationEnum._CLASSIFICATION_SCORE_TO_STRING.get(clinic_val)
+                cv_str = ClassificationEnum._CLASSIFICATION_SCORE_TO_STRING.get(clinvar_val)
 
                 if c_str and cv_str:
                     if c_str == cv_str:
@@ -393,22 +394,17 @@ def classify_variants(request):
                 }
 
                 if gv.dbsnp:
-                    dbsnp_map[gv.dbsnp.replace('\xa0', ' ').strip().lower()] = variant_data
+                    dbsnp_map[gv.dbsnp.strip().lower()] = variant_data
 
-                variant_genes = [g.symbol.replace('\xa0', ' ').strip().lower() for g in gv.genes.all()]
+                variant_genes = [g.symbol.strip().lower() for g in gv.genes.all()]
                 
                 for ann in gv.annotations.all():
                     if ann.hgvs_c:
-                        c_clean = ann.hgvs_c.replace('\xa0', ' ').strip()
+                        c_clean = ann.hgvs_c.strip()
                         # Záložní klíč bez genu pro případ prázdného variant_genes
                         hgvs_map[c_clean] = variant_data
                         for g_sym in variant_genes:
                             hgvs_map[(g_sym, c_clean)] = variant_data
-                    if ann.hgvs_p:
-                        p_clean = ann.hgvs_p.replace('\xa0', ' ').strip()
-                        hgvs_map[p_clean] = variant_data
-                        for g_sym in variant_genes:
-                            hgvs_map[(g_sym, p_clean)] = variant_data
 
         uploaded_file.seek(0)
         wb = load_workbook(io.BytesIO(file_bytes))
@@ -429,6 +425,7 @@ def classify_variants(request):
                 openpyxl_dbsnp_idx = idx
         
         start_col = len(orig_headers) + 1
+        
         ws.cell(row=1, column=start_col, value="Zhodnoceni_Patogenity")
         ws.cell(row=1, column=start_col + 1, value="ClinVar_ID")
         ws.cell(row=1, column=start_col + 2, value="Status_Kontroly")
@@ -438,19 +435,23 @@ def classify_variants(request):
             variant_val = ws.cell(row=row_num, column=openpyxl_variant_idx).value if openpyxl_variant_idx else None
             dbsnp_val = ws.cell(row=row_num, column=openpyxl_dbsnp_idx).value if openpyxl_dbsnp_idx else None
 
-            g_clean = str(gene_val).replace('\xa0', ' ').strip().lower() if gene_val else ""
-            d_clean = str(dbsnp_val).replace('\xa0', ' ').strip().lower() if dbsnp_val else ""
+            g_clean = parse_excel_genes(gene_val) if gene_val else ""
+            d_clean = parse_excel_dbsnp(str(dbsnp_val)) if dbsnp_val else ""
             
-            # Očištění buňky před vyhledáním v dictionary mapě hgvs_map
             _, _, hgvs = parse_excel_hgvs(str(variant_val)) if variant_val else ""
             logger.info(f"Processing row {row_num}: Gene='{gene_val}', Variant='{variant_val}', dbSNP='{dbsnp_val}' -> Cleaned Gene='{g_clean}', Cleaned Variant='{hgvs}', Cleaned dbSNP='{d_clean}'")
 
             match = None
             if d_clean and d_clean in dbsnp_map:
                 match = dbsnp_map[d_clean]
-            elif g_clean and hgvs and (g_clean, hgvs) in hgvs_map:
-                match = hgvs_map[(g_clean, hgvs)]
-            elif hgvs and hgvs in hgvs_map:
+            elif g_clean and hgvs:
+                for g in g_clean:
+                    g = g.strip().lower()
+                    if (g, hgvs) in hgvs_map:
+                        match = hgvs_map[(g, hgvs)]
+                        break
+
+            if not match and hgvs and hgvs in hgvs_map:
                 match = hgvs_map[hgvs]
 
             if match:
