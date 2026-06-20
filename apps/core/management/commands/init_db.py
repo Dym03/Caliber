@@ -28,6 +28,7 @@ variant_gene_m2m_cache = (
     set()
 )  # Tracks (variant_id, gene_id) to avoid repetitive .add() queries
 
+
 def sheet_exists(path: str, sheet: str) -> bool:
     wb = load_workbook(path, read_only=True)
     return sheet in wb.sheetnames
@@ -86,16 +87,20 @@ def parse_excel_hgvs(excel_string):
         return match.group(1), match.group(2), match.group(3)
     return None, None, excel_string
 
-def parse_excel_dbsnp(excel_string)-> str:
+
+def parse_excel_dbsnp(excel_string) -> str:
     if not excel_string:
         return ""
     # Split by commas and filter out any non-rs IDs
-    dbsnp_ids = [id.strip() for id in excel_string.split(",") if id.strip().startswith("rs")]
+    dbsnp_ids = [
+        id.strip() for id in excel_string.split(",") if id.strip().startswith("rs")
+    ]
     if len(dbsnp_ids) > 1:
         logger.warning(
             f"Multiple dbSNP IDs found: {dbsnp_ids}. Only the first one will be used."
         )
     return dbsnp_ids[0] if dbsnp_ids else ""
+
 
 def parse_excel_genes(excel_string) -> list:
     if not excel_string:
@@ -104,10 +109,13 @@ def parse_excel_genes(excel_string) -> list:
     gene_symbols = [g.strip() for g in re.split(r"[,;/|]", excel_string) if g.strip()]
     return gene_symbols
 
+
 def parse_row(row) -> dict:
     cleaned_data = {}
     cleaned_data["patient_id"] = clean_str(row.get("Name"))
-    cleaned_data["gene_symbols"] = parse_excel_genes(row.get("Symbol") or row.get("Gene"))
+    cleaned_data["gene_symbols"] = parse_excel_genes(
+        row.get("Symbol") or row.get("Gene")
+    )
 
     cleaned_data["variation_type"] = normalize_var_type(
         row.get("Variant_class") or row.get("Variation Type")
@@ -119,9 +127,12 @@ def parse_row(row) -> dict:
     cleaned_data["ref_allele"] = clean_str(row.get("Reference") or row.get("Ref"))
     cleaned_data["alt_allele"] = clean_str(row.get("Alternate") or row.get("Alt"))
     cleaned_data["dbSNP"] = parse_excel_dbsnp(
-        row.get("VEP dbSNP ID", "") or row.get("dbSNP", "") # TODO IF CMON are wanted, because right now we have some dbSNP with comma separated multiple IDs, which is not ideal for the unique constraint and the mapping to clinvar variants. We should ask if we want to split those into multiple dbSNPs or just take the first one or something else
+        row.get("VEP dbSNP ID", "")
+        or row.get(
+            "dbSNP", ""
+        )  # TODO IF CMON are wanted, because right now we have some dbSNP with comma separated multiple IDs, which is not ideal for the unique constraint and the mapping to clinvar variants. We should ask if we want to split those into multiple dbSNPs or just take the first one or something else
     )
-    
+
     cleaned_data["hgvs_coding"] = clean_str(row.get("HGVSc") or row.get("Transcript"))
     nucleotide = clean_str(row.get("Nucleotide", ""))
     if nucleotide:
@@ -174,14 +185,14 @@ def persist_row(data: dict, file_name: str):
                 "dbsnp": data["dbSNP"],
             },
         )
-        
+
         if not gene_variant.gnomAD and data["gnomAD"]:
             gene_variant.gnomAD = data["gnomAD"]
             gene_variant.save(update_fields=["gnomAD"])
         if not gene_variant.dbsnp and data["dbSNP"]:
             gene_variant.dbsnp = data["dbSNP"]
             gene_variant.save(update_fields=["dbsnp"])
-        
+
         variant_cache[variant_key] = gene_variant
     else:
         gene_variant = variant_cache[variant_key]
