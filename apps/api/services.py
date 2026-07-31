@@ -4,11 +4,12 @@ import os
 import tempfile
 import polars as pl
 from django.db import transaction
+from apps import core
 from apps.core.management.commands.init_db import parse_df, sheet_exists
 from openpyxl import load_workbook
 from django.db.models import Q, Subquery, OuterRef
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
-from apps.core.models import Gene, GeneVariant, PatientVariant
+from apps.core.models import Gene, GeneVariant, PatientVariant, User
 from apps.core.enums import ClassificationEnum
 from apps.core.management.commands.init_db import (
     parse_excel_genes,
@@ -51,7 +52,7 @@ def query_variants(
 
     patient_queryset = (
         PatientVariant.objects.select_related(
-            "variant", "variant__clinvar_entry", "report", "report__patient"
+            "variant", "variant__clinvar_entry", "report", "report__patient", "report__created_by"
         )
         .prefetch_related("variant__annotations", "variant__genes")
         .filter(patient_filters)
@@ -126,10 +127,13 @@ def query_variants(
             }
 
         if not is_fallback:
+            creator = item.report.created_by
+            created_by_user = creator.username if creator else "System"
             results.append(
                 {
                     "source": "clinic",
                     "patient_id": item.report.patient.name,
+                    "created_by": created_by_user,
                     "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
                     "all_genes": gene_symbols,
                     "variant": item.reported_hgvs_c
@@ -150,6 +154,7 @@ def query_variants(
                 {
                     "source": "clinvar_catalog",
                     "patient_id": "-",
+                    "created_by": "-",
                     "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
                     "all_genes": gene_symbols,
                     "variant": transcripts[0] if transcripts else "Unknown Transcript",
@@ -178,7 +183,7 @@ def query_variants(
     }
 
 
-def process_uploaded_variants_file(uploaded_file) -> dict:
+def process_uploaded_variants_file(uploaded_file, user: User | None = None) -> dict:
     """
     Parses the uploaded CSV or Excel file, processes its contents, and persists the data into the database.
     Returns a dictionary containing the filename and the number of rows processed.
@@ -204,7 +209,7 @@ def process_uploaded_variants_file(uploaded_file) -> dict:
                 df = pl.read_excel(tmp_path)
 
         with transaction.atomic():
-            parse_df(df, name)
+            parse_df(df, name, user=user)
 
         return {"filename": name, "rows": df.height}
     finally:

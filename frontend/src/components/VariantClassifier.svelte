@@ -1,4 +1,10 @@
 <script lang="ts">
+  interface Props {
+    onunauthorized?: () => void
+  }
+
+  let { onunauthorized }: Props = $props()
+
   let isProcessing = $state(false);
   let errorMessage = $state('');
   let successMessage = $state('');
@@ -78,6 +84,10 @@
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          onunauthorized?.()
+          return
+        }
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Zpracování souboru selhalo.');
       }

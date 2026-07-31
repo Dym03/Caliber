@@ -15,6 +15,7 @@ from apps.core.models import (
     Patient,
     PatientVariant,
     TranscriptAnnotation,
+    User,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,7 @@ def parse_row(row) -> dict:
     return cleaned_data
 
 
-def persist_row(data: dict, file_name: str):
+def persist_row(data: dict, file_name: str, user: User | None = None) -> None:
     if data["patient_id"] not in patient_cache:
         patient, _ = Patient.objects.get_or_create(name=data["patient_id"])
         patient_cache[data["patient_id"]] = patient
@@ -230,7 +231,7 @@ def persist_row(data: dict, file_name: str):
 
     # 5. Report & Patient Linkage
     report, _ = GeneticReport.objects.get_or_create(
-        patient=patient, report_name=file_name
+        patient=patient, report_name=file_name, defaults={"created_by": user}
     )
 
     PatientVariant.objects.get_or_create(
@@ -243,10 +244,10 @@ def persist_row(data: dict, file_name: str):
     )
 
 
-def parse_df(df: pl.DataFrame, file_name: str):
+def parse_df(df: pl.DataFrame, file_name: str, user: User | None = None):
     for row in df.iter_rows(named=True):
         cleaned_data = parse_row(row)
-        persist_row(cleaned_data, file_name)
+        persist_row(cleaned_data, file_name, user=user)
 
 
 class Command(BaseCommand):

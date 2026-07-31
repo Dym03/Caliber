@@ -4,6 +4,7 @@ import polars as pl
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 
+from apps.core.auth import login_required_json
 from apps.api.services import (
     annotate_excel_workbook,
     get_variant_hashes_from_db,
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # TODO: Add authentication and permissions to restrict access to these endpoints
 # TODO: Imporove FE part so it displays all the info about the variant in the detail.
+@login_required_json
 def search_variants(request):
     """
     Search for variants based on query parameters.
@@ -54,12 +56,15 @@ def search_variants(request):
 
 
 @require_POST
+@login_required_json
 def upload_variants_file(request):
     """
     Handle the upload of variant files (Excel) and process them to populate the database.
     Expects files to be uploaded under the "file" key in the request.
     Returns a JSON response indicating the success or failure of the operation.
     """
+    user = request.user
+
     uploaded_files = request.FILES.getlist("file")
     if not uploaded_files:
         return JsonResponse({"error": "No file provided."}, status=400)
@@ -74,7 +79,7 @@ def upload_variants_file(request):
     results = []
     try:
         for uploaded in uploaded_files:
-            file_result = process_uploaded_variants_file(uploaded)
+            file_result = process_uploaded_variants_file(uploaded, user=user)
             results.append(file_result)
 
         return JsonResponse(
@@ -92,6 +97,7 @@ def upload_variants_file(request):
 
 #TODO Sheet name have to be either default or we have to get it from the user. Currently it is hardcoded to default.
 @require_POST
+@login_required_json
 def classify_variants(request):
     """
     Handle the upload of an Excel file containing variants and classify them based on internal and ClinVar data.
