@@ -15,7 +15,10 @@ from apps.core.models import (
     Patient,
     PatientVariant,
     TranscriptAnnotation,
+    User,
 )
+
+logger = logging.getLogger(__name__)
 
 # Dedicated in-memory caches to prevent redundant DB lookups inside the loop
 patient_cache = {}
@@ -86,10 +89,35 @@ def parse_excel_hgvs(excel_string):
     return None, None, excel_string
 
 
+def parse_excel_dbsnp(excel_string) -> str:
+    if not excel_string:
+        return ""
+    # Split by commas and filter out any non-rs IDs
+    dbsnp_ids = [
+        id.strip() for id in excel_string.split(",") if id.strip().startswith("rs")
+    ]
+    if len(dbsnp_ids) > 1:
+        logger.warning(
+            f"Multiple dbSNP IDs found: {dbsnp_ids}. Only the first one will be used."
+        )
+    return dbsnp_ids[0] if dbsnp_ids else ""
+
+
+def parse_excel_genes(excel_string) -> list:
+    if not excel_string:
+        return []
+    # Split by common delimiters and filter out empty strings
+    gene_symbols = [g.strip() for g in re.split(r"[,;/|]", excel_string) if g.strip()]
+    return gene_symbols
+
+
 def parse_row(row) -> dict:
     cleaned_data = {}
     cleaned_data["patient_id"] = clean_str(row.get("Name"))
-    cleaned_data["gene_symbol"] = clean_str(row.get("Symbol") or row.get("Gene"))
+    cleaned_data["gene_symbols"] = parse_excel_genes(
+        row.get("Symbol") or row.get("Gene")
+    )
+
     cleaned_data["variation_type"] = normalize_var_type(
         row.get("Variant_class") or row.get("Variation Type")
     )
@@ -99,9 +127,13 @@ def parse_row(row) -> dict:
     )
     cleaned_data["ref_allele"] = clean_str(row.get("Reference") or row.get("Ref"))
     cleaned_data["alt_allele"] = clean_str(row.get("Alternate") or row.get("Alt"))
-    cleaned_data["dbSNP"] = clean_str(
-        row.get("VEP dbSNP ID", "") or row.get("dbSNP", "")
+    cleaned_data["dbSNP"] = parse_excel_dbsnp(
+        row.get("VEP dbSNP ID", "")
+        or row.get(
+            "dbSNP", ""
+        )  # TODO IF CMON are wanted, because right now we have some dbSNP with comma separated multiple IDs, which is not ideal for the unique constraint and the mapping to clinvar variants. We should ask if we want to split those into multiple dbSNPs or just take the first one or something else
     )
+
     cleaned_data["hgvs_coding"] = clean_str(row.get("HGVSc") or row.get("Transcript"))
     nucleotide = clean_str(row.get("Nucleotide", ""))
     if nucleotide:
@@ -126,11 +158,7 @@ def parse_row(row) -> dict:
     return cleaned_data
 
 
-def persist_row(data: dict, file_name: str):
-    # 1. Patient Lookup
-    if data["variation_type"] == "SNV" and data["chromosome"] == "chr1" and data["position"] == 1520206 and data["ref_allele"] == "C" and data["alt_allele"] == "T":
-        print(data)
-
+def persist_row(data: dict, file_name: str, user: User | None = None) -> None:
     if data["patient_id"] not in patient_cache:
         patient, _ = Patient.objects.get_or_create(name=data["patient_id"])
         patient_cache[data["patient_id"]] = patient
@@ -158,25 +186,22 @@ def persist_row(data: dict, file_name: str):
                 "dbsnp": data["dbSNP"],
             },
         )
-        
+
         if not gene_variant.gnomAD and data["gnomAD"]:
             gene_variant.gnomAD = data["gnomAD"]
             gene_variant.save(update_fields=["gnomAD"])
         if not gene_variant.dbsnp and data["dbSNP"]:
             gene_variant.dbsnp = data["dbSNP"]
             gene_variant.save(update_fields=["dbsnp"])
-        
+
         variant_cache[variant_key] = gene_variant
     else:
         gene_variant = variant_cache[variant_key]
 
     # 3. Handle ManyToMany Relationship for Genes
     # Splitting by common delimiters (like commas or slashes) in case an excel row lists overlapping genes
-    gene_symbols = [
-        g.strip() for g in re.split(r"[,;/|]", data["gene_symbol"]) if g.strip()
-    ]
 
-    for symbol in gene_symbols:
+    for symbol in data["gene_symbols"]:
         if symbol not in gene_cache:
             gene, _ = Gene.objects.get_or_create(symbol=symbol)
             gene_cache[symbol] = gene
@@ -206,7 +231,7 @@ def persist_row(data: dict, file_name: str):
 
     # 5. Report & Patient Linkage
     report, _ = GeneticReport.objects.get_or_create(
-        patient=patient, report_name=file_name
+        patient=patient, report_name=file_name, defaults={"created_by": user}
     )
 
     PatientVariant.objects.get_or_create(
@@ -219,10 +244,10 @@ def persist_row(data: dict, file_name: str):
     )
 
 
-def parse_df(df: pl.DataFrame, file_name: str):
+def parse_df(df: pl.DataFrame, file_name: str, user: User | None = None):
     for row in df.iter_rows(named=True):
         cleaned_data = parse_row(row)
-        persist_row(cleaned_data, file_name)
+        persist_row(cleaned_data, file_name, user=user)
 
 
 class Command(BaseCommand):

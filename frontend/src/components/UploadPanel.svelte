@@ -1,4 +1,10 @@
 <script lang="ts">
+  interface Props {
+    onunauthorized?: () => void
+  }
+
+  let { onunauthorized }: Props = $props()
+
   let uploadFiles = $state<File[]>([])
   let uploadMessage = $state('')
   let uploadError = $state('')
@@ -35,6 +41,10 @@
         body: formData,
       })
       if (!response.ok) {
+        if (response.status === 401) {
+          onunauthorized?.()
+          return
+        }
         const payload = (await response.json()) as { error?: string }
         throw new Error(payload.error || 'Upload failed.')
       }
