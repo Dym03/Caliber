@@ -112,7 +112,7 @@
   <div class="card layout-panel">
     <div class="panel-head">
       <h2>Automatická anotace a klasifikace</h2>
-      <p class="muted">Nahrajte váš laboratorní Excel seznam variant. Systém jej porovná s lokální databází i 60GB referenčním katalogem ClinVar a vrátí vám jej doplněný o určenou patogenitu.</p>
+      <p class="muted">Nahrajte váš laboratorní Excel seznam variant. Systém se pokusí automaticky anotovat a klasifikovat jednotlivé varianty za pomocí interní a ClinVar databáze. Následně vám bude k dispozici stažený soubor s výsledky.</p>
     </div>
 
     <form onsubmit={handleSubmit} class="upload-panel">

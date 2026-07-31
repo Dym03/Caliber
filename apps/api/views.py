@@ -17,7 +17,8 @@ from apps.core.management.commands.init_db import parse_excel_hgvs
 
 logger = logging.getLogger(__name__)
 
-
+# TODO: Add authentication and permissions to restrict access to these endpoints
+# TODO: Imporove FE part so it displays all the info about the variant in the detail.
 def search_variants(request):
     """
     Search for variants based on query parameters.
@@ -89,7 +90,7 @@ def upload_variants_file(request):
             {"error": f"Chyba při zpracování souborů: {str(e)}"}, status=500
         )
 
-
+#TODO Sheet name have to be either default or we have to get it from the user. Currently it is hardcoded to default.
 @require_POST
 def classify_variants(request):
     """
