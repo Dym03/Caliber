@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Python artifacts and virtualenvs
+.venv
+venv
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ruff_cache/
+
+# Node & Frontend
+frontend/node_modules/
+frontend/.vscode/
+
+# Local databases and large data archives
+*.sqlite3
+*.sqlite3-journal
+data/
+orig_data/
+*.tar.gz
+*.zip
+*.xlsx
+*.xls
+*.fastq.gz
+
+# Local environments and credentials
+.env
+.env.local
+.env.*.local
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Collected static files (built freshly inside the image)
+staticfiles/
+
