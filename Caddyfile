@@ -1,0 +1,35 @@
+# Caddy configuration for Caliber reverse proxy & automatic HTTPS
+# Environment variables:
+#   SERVER_NAME: Domain name (e.g. caliber.example.com) or ":80" for HTTP only (default: :80)
+#   ACME_EMAIL:  Email address for Let's Encrypt certificate registration
+
+{
+    # Optional global options
+    # email {$ACME_EMAIL:admin@example.com}
+}
+
+{$SERVER_NAME::80} {
+    reverse_proxy web:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Enable gzip and zstd compression
+    encode gzip zstd
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+
