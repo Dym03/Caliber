@@ -37,6 +37,8 @@ AUTH_USER_MODEL = "core.User"
 # Reverse proxy / SSL configuration
 if env.bool("USE_X_FORWARDED_PROTO", default=False):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_COOKIE_NAME = "csrftoken"
+CSRF_COOKIE_HTTPONLY = False 
 
 # Application definition
 
