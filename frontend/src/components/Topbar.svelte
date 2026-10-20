@@ -1,7 +1,7 @@
 <script lang="ts">
   interface Props {
-    currentView: 'registry' | 'batch'
-    onviewchange: (view: 'registry' | 'batch') => void
+    currentView: 'registry' | 'batch' | 'dashboard'
+    onviewchange: (view: 'registry' | 'batch' | 'dashboard') => void
     userLabel: string
     onlogout: () => void
   }
@@ -37,6 +37,13 @@
         onclick={() => onviewchange('batch')}
       >
         Klasifikace
+      </button>
+      <button
+        type="button"
+        class="ghost nav-btn {currentView === 'dashboard' ? 'active' : ''}"
+        onclick={() => onviewchange('dashboard')}
+      >
+        Přehled databáze
       </button>
     </nav>
 

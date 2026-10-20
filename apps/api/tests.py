@@ -86,3 +86,21 @@ class SearchVariantsTests(TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["gene"], "CFTR")
 
+    def test_dashboard_stats_requires_login(self):
+        self.client.logout()
+        response = self.client.get(reverse("dashboard_stats"))
+        self.assertEqual(response.status_code, 401)
+
+    def test_dashboard_stats_success(self):
+        response = self.client.get(reverse("dashboard_stats"))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("summary", data)
+        self.assertIn("categories_breakdown", data)
+        self.assertIn("zygosities_breakdown", data)
+        self.assertIn("top_genes", data)
+        self.assertIn("recurrent_variants", data)
+        self.assertIn("recent_reports", data)
+        self.assertEqual(data["summary"]["total_patients"], 0)
+
+

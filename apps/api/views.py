@@ -2,11 +2,12 @@ import logging
 import io
 import polars as pl
 from django.http import HttpResponse, JsonResponse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from apps.core.auth import login_required_json
 from apps.api.services import (
     annotate_excel_workbook,
+    get_dashboard_statistics,
     get_variant_hashes_from_db,
     process_uploaded_variants_file,
     query_variants,
@@ -190,3 +191,18 @@ def classify_variants(request):
         return JsonResponse(
             {"error": f"Chyba serveru při analýze: {str(e)}"}, status=500
         )
+
+
+@require_GET
+@login_required_json
+def dashboard_stats(request):
+    """
+    Returns aggregated statistical telemetry for the database dashboard.
+    """
+    try:
+        data = get_dashboard_statistics()
+        return JsonResponse(data)
+    except Exception as e:
+        logger.exception("Chyba při načítání statistik databáze.")
+        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
+

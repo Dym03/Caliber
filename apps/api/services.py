@@ -126,7 +126,7 @@ def query_variants(
                 "last_updated": clinvar_entry.last_updated.isoformat()
                 if clinvar_entry.last_updated
                 else None,
-            }
+            }   
 
         if not is_fallback:
             creator = item.report.created_by
@@ -392,3 +392,277 @@ def annotate_excel_workbook(
     wb.save(output)
     output.seek(0)
     return output
+
+
+def get_dashboard_statistics() -> dict:
+    """
+    Computes aggregated statistical telemetry for the database dashboard:
+    - Overview KPIs (patients, reports, variants, ClinVar reference)
+    - Pathogenicity classification breakdown (ACMG 1-5 categories)
+    - Zygosity distribution
+    - Top mutated genes across the cohort
+    - High-frequency recurrent variants
+    - Recent diagnostic report uploads
+    """
+    from django.db.models import Count, Max
+    from apps.core.models import (
+        Patient,
+        GeneticReport,
+        PatientVariant,
+        GeneVariant,
+        TranscriptAnnotation,
+    )
+    from apps.clinvar.models import ClinVarGeneVariant
+
+    total_patients = Patient.objects.count()
+    total_reports = GeneticReport.objects.count()
+    total_patient_variants = PatientVariant.objects.count()
+    total_unique_variants = (
+        PatientVariant.objects.values("variant_id").distinct().count()
+    )
+    pathogenic_patients = (
+        PatientVariant.objects.filter(category__gte=4.0)
+        .values("report__patient_id")
+        .distinct()
+        .count()
+    )
+    total_clinvar = ClinVarGeneVariant.objects.count()
+    clinvar_last_updated = (
+        ClinVarGeneVariant.objects.order_by("-last_updated")
+        .values_list("last_updated", flat=True)
+        .first()
+    )
+
+    pathogenic_pct = (
+        round((pathogenic_patients / total_patients) * 100, 1)
+        if total_patients > 0
+        else 0.0
+    )
+
+    # 1. Classification Categories Breakdown
+    cat_counts_raw = (
+        PatientVariant.objects.values("category")
+        .annotate(count=Count("id"))
+        .order_by("-category")
+    )
+
+    category_meta = {
+        8.0 : {"label": "Somatická varianta", "class": "c8"},
+        7.0 : {"label": "Farmakogenetický rizikový faktor", "class": "c7"},
+        6.0 : {"label": "Hypomorfní varianta", "class": "c6"},
+        5.0: {"label": "Třída 5 – Patogenní", "class": "c5"},
+        4.5: {
+            "label": "Třída 4-5 – Patogenní / Pravděpodobně patogenní",
+            "class": "c4-5",
+        },
+        4.0: {"label": "Třída 4 – Pravděpodobně patogenní", "class": "c4"},
+        3.5: {
+            "label": "Třída 3-4 – VUS / Pravděpodobně patogenní",
+            "class": "c3-4",
+        },
+        3.0: {"label": "Třída 3 – VUS (Nejasný význam)", "class": "c3"},
+        2.5: {
+            "label": "Třída 2-3 – Pravděpodobně benigní / VUS",
+            "class": "c2-3",
+        },
+        2.0: {"label": "Třída 2 – Pravděpodobně benigní", "class": "c2"},
+        1.5: {
+            "label": "Třída 1-2 – Benigní / Pravděpodobně benigní",
+            "class": "c1-2",
+        },
+        1.0: {"label": "Třída 1 – Benigní", "class": "c1"},
+        0.0: {"label": "Artefakt / Jiné", "class": "c0"},
+    }
+
+    categories_breakdown = []
+    for item in cat_counts_raw:
+        cat_val = item["category"]
+        count = item["count"]
+        pct = (
+            round((count / total_patient_variants) * 100, 1)
+            if total_patient_variants > 0
+            else 0.0
+        )
+        meta = category_meta.get(
+            cat_val,
+            {
+                "label": f"Kategorie {cat_val}"
+                if cat_val is not None
+                else "Neuvedeno",
+                "class": "c0",
+            },
+        )
+        categories_breakdown.append(
+            {
+                "category": cat_val,
+                "label": meta["label"],
+                "color_class": meta["class"],
+                "count": count,
+                "percentage": pct,
+            }
+        )
+
+    # 2. Zygosity Breakdown
+    zyg_counts_raw = (
+        PatientVariant.objects.values("zygosity")
+        .annotate(count=Count("id"))
+        .order_by("-count")
+    )
+    normalized_zygosities = {}
+    for item in zyg_counts_raw:
+        raw_zyg = (item["zygosity"] or "").strip().upper()
+        if "HET" in raw_zyg:
+            norm_label = "Heterozygot (HET)"
+        elif "HOM" in raw_zyg:
+            norm_label = "Homozygot (HOM)"
+        elif "HEM" in raw_zyg:
+            norm_label = "Hemizygot (HEM)"
+        else:
+            norm_label = "Neurčeno / Jiné"
+        normalized_zygosities[norm_label] = (
+            normalized_zygosities.get(norm_label, 0) + item["count"]
+        )
+
+    zygosities_breakdown = []
+    for label, count in normalized_zygosities.items():
+        pct = (
+            round((count / total_patient_variants) * 100, 1)
+            if total_patient_variants > 0
+            else 0.0
+        )
+        zygosities_breakdown.append(
+            {"label": label, "count": count, "percentage": pct}
+        )
+    zygosities_breakdown.sort(key=lambda x: x["count"], reverse=True)
+
+    # 3. Top mutated genes
+    top_genes_raw = list(
+        PatientVariant.objects.filter(variant__genes__isnull=False)
+        .values("variant__genes__symbol")
+        .annotate(
+            patient_count=Count("report__patient_id", distinct=True),
+            variant_count=Count("id"),
+        )
+        .order_by("-patient_count", "-variant_count")[:10]
+    )
+    top_genes = []
+    for g in top_genes_raw:
+        symbol = g["variant__genes__symbol"]
+        p_count = g["patient_count"]
+        v_count = g["variant_count"]
+        pct = (
+            round((p_count / total_patients) * 100, 1)
+            if total_patients > 0
+            else 0.0
+        )
+        top_genes.append(
+            {
+                "symbol": symbol,
+                "patient_count": p_count,
+                "variant_count": v_count,
+                "percentage": pct,
+            }
+        )
+
+    # 4. Most recurrent variants in cohort
+    recurrent_raw = list(
+        PatientVariant.objects.values(
+            "variant_id",
+            "variant__chromosome",
+            "variant__position",
+            "variant__dbsnp",
+            "variant__variation_type",
+            "variant__clinvar_entry__clinvar_id",
+            "variant__clinvar_entry__clinvar_classification",
+        )
+        .annotate(
+            patient_count=Count("report__patient_id", distinct=True),
+            observation_count=Count("id"),
+            max_category=Max("category"),
+        )
+        .order_by("-patient_count", "-observation_count")[:10]
+    )
+
+    recurrent_var_ids = [r["variant_id"] for r in recurrent_raw]
+    genes_by_var = {}
+    if recurrent_var_ids:
+        for gv in GeneVariant.objects.filter(id__in=recurrent_var_ids).prefetch_related(
+            "genes"
+        ):
+            genes_by_var[gv.id] = [g.symbol for g in gv.genes.all()]
+
+    hgvs_by_var = {}
+    if recurrent_var_ids:
+        for ta in (
+            TranscriptAnnotation.objects.filter(variant_id__in=recurrent_var_ids)
+            .exclude(hgvs_c__isnull=True)
+            .exclude(hgvs_c="")
+        ):
+            if ta.variant_id not in hgvs_by_var:
+                hgvs_by_var[ta.variant_id] = ta.hgvs_c
+
+    recurrent_variants = []
+    for r in recurrent_raw:
+        v_id = r["variant_id"]
+        gene_list = genes_by_var.get(v_id, [])
+        primary_gene = gene_list[0] if gene_list else "—"
+        hgvs_c = hgvs_by_var.get(v_id, "")
+        recurrent_variants.append(
+            {
+                "variant_id": v_id,
+                "gene": primary_gene,
+                "hgvs_c": hgvs_c,
+                "dbsnp": r["variant__dbsnp"] or "—",
+                "chromosome": r["variant__chromosome"],
+                "position": r["variant__position"],
+                "variation_type": r["variant__variation_type"] or "SNV",
+                "patient_count": r["patient_count"],
+                "observation_count": r["observation_count"],
+                "category": r["max_category"],
+                "clinvar_id": r["variant__clinvar_entry__clinvar_id"],
+                "clinvar_classification": r[
+                    "variant__clinvar_entry__clinvar_classification"
+                ],
+            }
+        )
+
+    # 5. Recent Reports
+    recent_reports_raw = list(
+        GeneticReport.objects.select_related("patient", "created_by")
+        .annotate(variants_count=Count("variants"))
+        .order_by("-created_at")[:6]
+    )
+    recent_reports = [
+        {
+            "id": rep.id,
+            "report_name": rep.report_name or "Report bez názvu",
+            "patient_name": rep.patient.name,
+            "created_at": rep.created_at.strftime("%d.%m.%Y %H:%M"),
+            "created_by": rep.created_by.username if rep.created_by else "Systém",
+            "variants_count": rep.variants_count,
+        }
+        for rep in recent_reports_raw
+    ]
+
+    return {
+        "summary": {
+            "total_patients": total_patients,
+            "total_reports": total_reports,
+            "total_patient_variants": total_patient_variants,
+            "total_unique_variants": total_unique_variants,
+            "pathogenic_patients": pathogenic_patients,
+            "pathogenic_patients_percentage": pathogenic_pct,
+            "total_clinvar_variants": total_clinvar,
+            "clinvar_last_updated": (
+                clinvar_last_updated.strftime("%d.%m.%Y")
+                if clinvar_last_updated
+                else "Neznámé"
+            ),
+        },
+        "categories_breakdown": categories_breakdown,
+        "zygosities_breakdown": zygosities_breakdown,
+        "top_genes": top_genes,
+        "recurrent_variants": recurrent_variants,
+        "recent_reports": recent_reports,
+    }
+

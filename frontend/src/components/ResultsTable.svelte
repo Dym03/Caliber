@@ -154,6 +154,7 @@
   import VariantModal from './VariantModal.svelte';
   import type { Variant } from '../types/variant';
   import type { PaginationMeta } from '../types/pagination';
+  import { categoryClass, clinvarVariantUrl, categoryRepr } from '../lib/utils';
 
   interface Props {
     results: Variant[]
@@ -182,41 +183,6 @@
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const year = String(date.getFullYear())
     return `${day}-${month}-${year}`
-  }
-
-  const categoryRepr = (value: number | string | null | undefined) => {
-    if (value === null || value === undefined) return '—'
-    if (value === 0) return '0'
-    if (value === 1) return '1'
-    if (value === 1.5) return '1-2'
-    if (value === 2) return '2'
-    if (value === 2.5) return '2-3'
-    if (value === 3) return '3'
-    if (value === 3.5) return '3-4'
-    if (value === 4) return '4'
-    if (value === 4.5) return '4-5'
-    if (value === 5) return '5'
-    return String(value)
-  }
- 
-  const categoryClass = (value: number | null | undefined) => {
-    if (value === null || value === undefined) return 'category'
-    if (value === 0) return 'category c0'
-    if (value === 1) return 'category c1'
-    if (value === 1.5) return 'category c1-2'
-    if (value === 2) return 'category c2'
-    if (value === 2.5) return 'category c2-3'
-    if (value === 3) return 'category c3'
-    if (value === 3.5) return 'category c3-4'
-    if (value === 4) return 'category c4'
-    if (value === 4.5) return 'category c4-5'
-    if (value === 5) return 'category c5'
-    return 'category'
-  }
-
-  const clinvar_variant_url = (variant_id: string | undefined) => {
-    if (!variant_id) return '#'
-    return `https://www.ncbi.nlm.nih.gov/clinvar/variation/${variant_id}`
   }
 </script>
 
@@ -276,7 +242,7 @@
               class="{categoryClass(item.clinvar?.score)} clinvar-badge" 
               target="_blank" 
               rel="noreferrer" 
-              href={clinvar_variant_url(item.clinvar?.id)}
+              href={clinvarVariantUrl(item.clinvar?.id)}
             >
               {categoryRepr(item.clinvar?.score) || ''}
             </a>

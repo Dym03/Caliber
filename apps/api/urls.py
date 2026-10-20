@@ -6,4 +6,5 @@ urlpatterns = [
     path("search/", views.search_variants, name="search_variants"),
     path("upload/", views.upload_variants_file, name="upload_variants_file"),
     path("classify/", views.classify_variants, name="classify_variants"),
+    path("stats/", views.dashboard_stats, name="dashboard_stats"),
 ]
