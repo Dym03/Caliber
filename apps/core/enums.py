@@ -6,11 +6,16 @@ class ClassificationEnum(Enum):
     PATHOGENIC = "Pathogenic"
     PATHOGENIC_LIKELY_PATHOGENIC = "Pathogenic/Likely pathogenic"
     LIKELY_PATHOGENIC = "Likely pathogenic"
+    UNCERTAIN_SIGNIFICANCE_LIKELY_PATHOGENIC = "Uncertain significance/Likely pathogenic"
     UNCERTAIN_SIGNIFICANCE = "Uncertain significance"
     LIKELY_BENIGN_UNCERTAIN_SIGNIFICANCE = "Likely benign/Uncertain significance"
     LIKELY_BENIGN = "Likely benign"
     BENIGN_LIKELY_BENIGN = "Benign/Likely benign"
     BENIGN = "Benign"
+    ARTEFACT = "Artefact"
+    HYPOMORF_VARIANT = "Hypomorph variant"
+    PHARMACO_RISK_FACTOR = "Pharmaco risk factor"
+    SOMATIC = "Somatic"
 
     @classmethod
     def from_clinvar_string(cls, value: str | None) -> "ClassificationEnum":
@@ -73,7 +78,7 @@ class ClassificationEnum(Enum):
     @property
     def score(self) -> float:
         """Returns the numeric float score of the enum instance."""
-        return self._SCORES.get(self.value, 3.0)
+        return self._SCORES.get(self, 3.0)
 
 
 ClassificationEnum._DIRECT_MAP = {
@@ -87,37 +92,56 @@ ClassificationEnum._DIRECT_MAP = {
     "benign/likely benign": ClassificationEnum.BENIGN_LIKELY_BENIGN,
     "pathogenic/likely pathogenic": ClassificationEnum.PATHOGENIC_LIKELY_PATHOGENIC,
     "not provided": ClassificationEnum.UNCERTAIN_SIGNIFICANCE,
+    "artefact": ClassificationEnum.ARTEFACT,
+    "hypomorph variant": ClassificationEnum.HYPOMORF_VARIANT,
+    "pharmaco risk factor": ClassificationEnum.PHARMACO_RISK_FACTOR,
+    "somatic": ClassificationEnum.SOMATIC,
 }
 
 ClassificationEnum._EXCEL_MAP = {
+    "8": ClassificationEnum.SOMATIC,
+    "7": ClassificationEnum.PHARMACO_RISK_FACTOR,
+    "6": ClassificationEnum.HYPOMORF_VARIANT,
     "5": ClassificationEnum.PATHOGENIC,
     "4-5": ClassificationEnum.PATHOGENIC_LIKELY_PATHOGENIC,
     "4": ClassificationEnum.LIKELY_PATHOGENIC,
+    "3-4": ClassificationEnum.UNCERTAIN_SIGNIFICANCE_LIKELY_PATHOGENIC,
     "3": ClassificationEnum.UNCERTAIN_SIGNIFICANCE,
     "2-3": ClassificationEnum.LIKELY_BENIGN_UNCERTAIN_SIGNIFICANCE,
     "2": ClassificationEnum.LIKELY_BENIGN,
     "1-2": ClassificationEnum.BENIGN_LIKELY_BENIGN,
     "1": ClassificationEnum.BENIGN,
+    "0": ClassificationEnum.ARTEFACT,
 }
 
 ClassificationEnum._CLASSIFICATION_SCORE_TO_STRING = {
+    8.0: "8",
+    7.0: "7",
+    6.0: "6",
     5.0: "5",
     4.5: "4-5",
     4.0: "4",
+    3.5: "3-4",
     3.0: "3",
     2.5: "2-3",
     2.0: "2",
     1.5: "1-2",
     1.0: "1",
+    0.0: "0",
 }
 
 ClassificationEnum._SCORES = {
-    "Pathogenic": 5.0,
-    "Pathogenic/Likely pathogenic": 4.5,
-    "Likely pathogenic": 4.0,
-    "Uncertain significance": 3.0,
-    "Likely benign/Uncertain significance": 2.5,
-    "Likely benign": 2.0,
-    "Benign/Likely benign": 1.5,
-    "Benign": 1.0,
+    ClassificationEnum.SOMATIC: 8.0,
+    ClassificationEnum.PHARMACO_RISK_FACTOR: 7.0,
+    ClassificationEnum.HYPOMORF_VARIANT: 6.0,
+    ClassificationEnum.PATHOGENIC: 5.0,
+    ClassificationEnum.PATHOGENIC_LIKELY_PATHOGENIC: 4.5,
+    ClassificationEnum.LIKELY_PATHOGENIC: 4.0,
+    ClassificationEnum.UNCERTAIN_SIGNIFICANCE_LIKELY_PATHOGENIC: 3.5,
+    ClassificationEnum.UNCERTAIN_SIGNIFICANCE: 3.0,
+    ClassificationEnum.LIKELY_BENIGN_UNCERTAIN_SIGNIFICANCE: 2.5,
+    ClassificationEnum.LIKELY_BENIGN : 2.0,
+    ClassificationEnum.BENIGN_LIKELY_BENIGN: 1.5,
+    ClassificationEnum.BENIGN: 1.0,
+    ClassificationEnum.ARTEFACT : 0.0,
 }
