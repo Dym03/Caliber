@@ -59,6 +59,13 @@ def clean_int(value: object) -> int | None:
         return None
     return int(value)
 
+def parse_patient_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if '-' in cleaned:
+        cleaned = cleaned.split('-')[0].strip()
+    return cleaned
 
 def normalize_var_type(var_type: str) -> str:
     if var_type is None:
@@ -130,9 +137,11 @@ def parse_excel_genes(excel_string) -> list:
     return gene_symbols
 
 
-def parse_row(row) -> dict:
+
+def parse_row(row, patient_id: str | None) -> dict:
     cleaned_data = {}
-    cleaned_data["patient_id"] = clean_str(row.get("Name"))
+    cleaned_data["patient_id"] = clean_str(row.get("Name")) or patient_id
+    cleaned_data["patient_id"] = parse_patient_id(cleaned_data["patient_id"])
     cleaned_data["gene_symbols"] = parse_excel_genes(
         row.get("Symbol") or row.get("Gene")
     )
@@ -285,6 +294,7 @@ def parse_df(
     df: pl.DataFrame,
     file_name: str,
     user: User | None = None,
+    patient_id: str | None = None,
     caches: ImportCaches | None = None,
 ) -> None:
     owns_cache = caches is None
@@ -293,7 +303,7 @@ def parse_df(
 
     try:
         for row in df.iter_rows(named=True):
-            cleaned_data = parse_row(row)
+            cleaned_data = parse_row(row, patient_id=patient_id)
             persist_row(cleaned_data, file_name, user=user, caches=caches)
     finally:
         if owns_cache:

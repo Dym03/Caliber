@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+import re
 import tempfile
 import polars as pl
 from django.db import transaction
@@ -15,6 +16,7 @@ from apps.core.management.commands.init_db import (
     parse_excel_genes,
     parse_excel_dbsnp,
     parse_excel_hgvs,
+    parse_patient_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -185,7 +187,7 @@ def query_variants(
 
 def process_uploaded_variants_file(uploaded_file, user: User | None = None) -> dict:
     """
-    Parses the uploaded CSV or Excel file, processes its contents, and persists the data into the database.
+    Parses the uploaded Excel file, processes its contents, and persists the data into the database.
     Returns a dictionary containing the filename and the number of rows processed.
     """
     name = uploaded_file.name
@@ -198,21 +200,21 @@ def process_uploaded_variants_file(uploaded_file, user: User | None = None) -> d
         tmp_path = tmp_file.name
 
     try:
-        if suffix == ".csv":
-            df = pl.read_csv(tmp_path)
-        elif suffix == ".xlsx" and sheet_exists(tmp_path, "default"):
-            df = pl.read_excel(tmp_path, sheet_name="default")
-        else:
-            try:
-                df = pl.read_excel(tmp_path, sheet_name="Filtr JI")
-            except Exception:
-                df = pl.read_excel(tmp_path)
+        workbook = load_workbook(tmp_path, read_only=True)
+        sheet_names = workbook.sheetnames
+        logger.info(f"Processing uploaded file '{name}' with sheets: {sheet_names}")
+        rows_processed = 0
+        for sheet in sheet_names:
+            if re.match(r"^\d+-\d+.*$", sheet): # [1-9]*-[1-9]*... pattern
+                df = pl.read_excel(tmp_path, sheet_name=sheet)
+                patient_id = parse_patient_id(sheet)
+                with transaction.atomic():
+                    parse_df(df, name, user=user, patient_id=patient_id)
+                    rows_processed += df.height
 
-        with transaction.atomic():
-            parse_df(df, name, user=user)
-
-        return {"filename": name, "rows": df.height}
+        return {"filename": name, "rows": rows_processed}
     finally:
+        workbook.close()
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
