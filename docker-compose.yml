@@ -45,6 +45,9 @@ services:
       FILE_UPLOAD_MAX_MEMORY_SIZE: ${FILE_UPLOAD_MAX_MEMORY_SIZE:-104857600}
       STATIC_URL: ${STATIC_URL:-/static/}
       FORCE_SCRIPT_NAME: ${FORCE_SCRIPT_NAME:-} # Optional: Set to a subpath (e.g., /caliber) if the app is served behind a reverse proxy at a subpath
+      DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+      DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
+      DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-AdminPassword123!}
     command: ["gunicorn", "caliber.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "300"]
     ports:
       # Expose port 8000 directly (accessible directly or via an external reverse proxy)

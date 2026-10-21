@@ -48,6 +48,11 @@ fi
 echo "==> Running database migrations..."
 python manage.py migrate --no-input
 
+if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && [ -n "$DJANGO_SUPERUSER_PASSWORD" ]; then
+    python manage.py createsuperuser --no-input || true
+fi
+
+
 echo "==> Startup preparation complete. Executing command..."
 exec "$@"
 
