@@ -482,7 +482,8 @@
   .distribution-segment.c1-2 { background-color: #6ee7b7; }
   .distribution-segment.c1 { background-color: #10b981; }
   .distribution-segment.c0 { background-color: #94a3b8; }
-
+  .distribution-segment.c-1 { background-color: #78716c; }
+  
   /* Category List */
   .category-list {
     display: flex;

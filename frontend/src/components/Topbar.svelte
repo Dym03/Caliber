@@ -46,7 +46,7 @@
         Přehled databáze
       </button>
     </nav>
-
+    <div class="spacer"></div>
     <div class="topbar-actions">
       <div class="user-chip">
         <span class="user-chip__label">Přihlášen</span>

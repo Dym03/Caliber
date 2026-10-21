@@ -157,6 +157,7 @@ input {
 .topbar-main {
   justify-content: space-between;
   gap: 18px;
+  width: 100%;
 }
 
 .topbar-actions {
@@ -825,6 +826,10 @@ input {
   align-items: center;
   border-bottom: 1px solid #eee;
   padding-bottom: 1rem;
+}
+
+.spacer {
+  width: auto;
 }
 
 .modal-header h3 {
