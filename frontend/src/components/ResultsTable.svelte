@@ -9,9 +9,10 @@
     meta: PaginationMeta | null
     onrefresh: () => void
     onpagechange: (page: number) => void // Callback to alert orchestrator of view changes
+    ondeleted?: (detail: { type: 'variant' | 'report'; id: number; message: string }) => void
   }
 
-  let { results, meta, onrefresh, onpagechange }: Props = $props()
+  let { results, meta, onrefresh, onpagechange, ondeleted }: Props = $props()
 
   let selectedVariant = $state<Variant | null>(null)
 
@@ -146,5 +147,12 @@
 </div>
 
 {#if selectedVariant}
-  <VariantModal variant={selectedVariant} onclose={closeModal} />
+  <VariantModal
+    variant={selectedVariant}
+    onclose={closeModal}
+    ondeleted={(detail) => {
+      ondeleted?.(detail)
+      onrefresh()
+    }}
+  />
 {/if}

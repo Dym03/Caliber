@@ -17,4 +17,8 @@ export type Variant = {
     category: number | null
     clinvar: ClinVarData
     comment?: string | null 
+    patient_variant_id?: number
+    report_id?: number
+    report_name?: string
+    report_variants_count?: number
   }

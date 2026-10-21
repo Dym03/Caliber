@@ -3,6 +3,7 @@
     variantQuery: string
     geneQuery: string
     dbsnpQuery: string
+    patientIdQuery: string
     isSearching: boolean
     errorMessage: string
     onsubmit: () => void
@@ -13,6 +14,7 @@
     variantQuery = $bindable(),
     geneQuery = $bindable(),
     dbsnpQuery = $bindable(),
+    patientIdQuery = $bindable(),
     isSearching,
     errorMessage,
     onsubmit,
@@ -57,7 +59,7 @@
 </script>
 
 <div>
-  <p class="label">Vyhledat podle varianty, genu nebo dbSNP</p>
+  <p class="label">Vyhledat podle varianty, genu, dbSNP nebo pacienta</p>
   <form class="search-form" onsubmit={handleSubmit}>
     <label class="field">
       <span>Varianta</span>
@@ -74,6 +76,10 @@
     <label class="field">
       <span>dbSNP</span>
       <input type="text" placeholder="rs80357713" bind:value={dbsnpQuery} />
+    </label>
+    <label class="field">
+      <span>Pacient ID</span>
+      <input type="text" placeholder="např. 12345" bind:value={patientIdQuery} />
     </label>
     <div class="actions">
       <button type="submit" class="ghost" disabled={isSearching}>

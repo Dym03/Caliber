@@ -8,9 +8,11 @@ import polars as pl
 from django.db import transaction
 from apps.core.management.commands.init_db import parse_df
 import fastexcel
+from django.core.exceptions import PermissionDenied
+from django.http import Http404
 from django.db.models import Q, Subquery, OuterRef
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
-from apps.core.models import Gene, GeneVariant, PatientVariant, User
+from apps.core.models import Gene, GeneVariant, PatientVariant, User, GeneticReport, Patient
 from apps.core.enums import ClassificationEnum
 from apps.core.management.commands.init_db import (
     parse_excel_genes,
@@ -23,7 +25,12 @@ logger = logging.getLogger(__name__)
 
 
 def query_variants(
-    variant: str, gene: str, dbsnp: str, page_number: int | str, per_page: int | str
+    variant: str,
+    gene: str,
+    dbsnp: str,
+    page_number: int | str,
+    per_page: int | str,
+    patient_id: str = "",
 ) -> dict:
     gene_id = None
     if gene:
@@ -51,6 +58,10 @@ def query_variants(
             | Q(variant__variation_type__iexact=variant)
             | Q(reported_hgvs_c__iexact=variant)
         )
+    if patient_id:
+        patient_filters &= (
+            Q(report__patient__name__iexact=patient_id)
+        )
 
     patient_queryset = (
         PatientVariant.objects.select_related(
@@ -65,8 +76,8 @@ def query_variants(
     is_fallback = False
     target_queryset = patient_queryset
 
-    # 3. Fallback na globální ClinVar katalog, pokud lokální záznamy nic nenašly
-    if not patient_queryset.exists():
+    # 3. Fallback na globální ClinVar katalog, pokud lokální záznamy nic nenašly a nehledá se podle pacienta
+    if not patient_queryset.exists() and not patient_id:
         is_fallback = True
         global_filters = Q()
         if gene_id:
@@ -134,6 +145,10 @@ def query_variants(
             results.append(
                 {
                     "source": "clinic",
+                    "patient_variant_id": item.id,
+                    "report_id": item.report.id,
+                    "report_name": item.report.report_name or f"Report #{item.report.id}",
+                    "report_variants_count": item.report.variants.count(),
                     "patient_id": item.report.patient.name,
                     "created_by": created_by_user,
                     "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
@@ -743,4 +758,86 @@ def get_dashboard_statistics() -> dict:
         "recurrent_variants": recurrent_variants,
         "recent_reports": recent_reports,
     }
+
+
+def delete_patient_variant(patient_variant_id: int, user: User) -> dict:
+    """
+    Deletes a single PatientVariant record.
+    Enforces authorization: user must be staff/superuser or the creator of the report.
+    If this was the last variant in the report, deletes the report as well.
+    If the patient has no other reports, deletes the patient.
+    """
+    try:
+        pv = PatientVariant.objects.select_related(
+            "report", "report__patient", "report__created_by"
+        ).get(pk=patient_variant_id)
+    except PatientVariant.DoesNotExist:
+        raise Http404("Varianta pacienta nebyla nalezena.")
+
+    report = pv.report
+    if not (
+        user.is_staff
+        or user.is_superuser
+        or (report.created_by and report.created_by == user)
+    ):
+        raise PermissionDenied("Nemáte oprávnění smazat tuto variantu.")
+
+    patient = report.patient
+    with transaction.atomic():
+        is_last_in_report = report.variants.count() <= 1
+        pv.delete()
+
+        report_deleted = False
+        if is_last_in_report:
+            report.delete()
+            report_deleted = True
+            if patient.reports.count() == 0:
+                patient.delete()
+
+    return {
+        "success": True,
+        "message": "Varianta byla úspěšně smazána."
+        + (" Report byl prázdný a byl také odstraněn." if report_deleted else ""),
+        "report_deleted": report_deleted,
+    }
+
+
+def delete_genetic_report(report_id: int, user: User) -> dict:
+    """
+    Deletes an entire GeneticReport and all associated PatientVariant records.
+    Enforces authorization: user must be staff/superuser or the creator of the report.
+    If the patient has no other reports, deletes the patient.
+    """
+    try:
+        report = GeneticReport.objects.select_related("patient", "created_by").get(
+            pk=report_id
+        )
+    except GeneticReport.DoesNotExist:
+        raise Http404("Genetický report nebyl nalezen.")
+
+    if not (
+        user.is_staff
+        or user.is_superuser
+        or (report.created_by and report.created_by == user)
+    ):
+        raise PermissionDenied("Nemáte oprávnění smazat tento report.")
+
+    patient = report.patient
+    report_name = report.report_name or f"Report #{report.id}"
+    variants_count = report.variants.count()
+
+    with transaction.atomic():
+        report.delete()
+        patient_deleted = False
+        if patient.reports.count() == 0:
+            patient.delete()
+            patient_deleted = True
+
+    return {
+        "success": True,
+        "message": f"Report '{report_name}' a všech jeho {variants_count} variant bylo úspěšně smazáno.",
+        "deleted_variants_count": variants_count,
+        "patient_deleted": patient_deleted,
+    }
+
 

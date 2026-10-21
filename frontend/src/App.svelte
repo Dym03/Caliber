@@ -35,6 +35,7 @@
   let variantQuery = $state('')
   let geneQuery = $state('')
   let dbsnpQuery = $state('')
+  let patientIdQuery = $state('')
   let isSearching = $state(false)
   let errorMessage = $state('')
 
@@ -64,6 +65,7 @@
     variantQuery = ''
     geneQuery = ''
     dbsnpQuery = ''
+    patientIdQuery = ''
     errorMessage = ''
     results = []
     meta = null
@@ -180,11 +182,12 @@
       variant: variantQuery.trim(),
       gene: geneQuery.trim(),
       dbsnp: dbsnpQuery.trim(),
+      patient_id: patientIdQuery.trim(),
       page: String(page),
       per_page: '50',
     })
 
-    if (![params.get('variant'), params.get('gene'), params.get('dbsnp')].some((value) => value && value.length > 0)) {
+    if (![params.get('variant'), params.get('gene'), params.get('dbsnp'), params.get('patient_id')].some((value) => value && value.length > 0)) {
       errorMessage = 'Vyplňte alespoň jedno vyhledávací pole.'
       results = []
       meta = null
@@ -211,6 +214,18 @@
     } finally {
       isSearching = false
     }
+  }
+
+  let successNotice = $state('')
+  let successTimer: ReturnType<typeof setTimeout> | null = null
+
+  const handleItemDeleted = (detail: { type: 'variant' | 'report'; id: number; message: string }) => {
+    successNotice = detail.message
+    if (successTimer) clearTimeout(successTimer)
+    successTimer = setTimeout(() => {
+      successNotice = ''
+    }, 6000)
+    runSearch(currentPage)
   }
 
   const handleFormSubmit = () => {
@@ -246,6 +261,7 @@
           bind:variantQuery
           bind:geneQuery
           bind:dbsnpQuery
+          bind:patientIdQuery
           {isSearching}
           {errorMessage}
           onsubmit={handleFormSubmit}
@@ -254,12 +270,20 @@
         <UploadPanel onunauthorized={handleUnauthorized} />
       </section>
 
+      {#if successNotice}
+        <div class="success-banner">
+          <span>✓ {successNotice}</span>
+          <button type="button" class="close-banner" onclick={() => (successNotice = '')}>✕</button>
+        </div>
+      {/if}
+
       <section class="grid">
         <ResultsTable
           {results}
           {meta}
           onrefresh={() => runSearch(currentPage)}
           onpagechange={handlePageChange}
+          ondeleted={handleItemDeleted}
         />
       </section>
     {:else if currentView === 'batch'}

@@ -1,8 +1,9 @@
 import logging
 import io
 import polars as pl
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+from django.http import HttpResponse, JsonResponse, Http404
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
+from django.core.exceptions import PermissionDenied
 
 from apps.core.auth import login_required_json
 from apps.api.services import (
@@ -11,6 +12,8 @@ from apps.api.services import (
     get_variant_hashes_from_db,
     process_uploaded_variants_file,
     query_variants,
+    delete_patient_variant,
+    delete_genetic_report,
 )
 from apps.core.management.commands.init_db import (
     parse_excel_dbsnp,
@@ -39,16 +42,19 @@ def search_variants(request):
     variant = request.GET.get("variant", "").strip()
     gene = request.GET.get("gene", "").strip()
     dbsnp = request.GET.get("dbsnp", "").strip()
+    patient_id = request.GET.get("patient_id", "").strip()
     page_number = request.GET.get("page", 1)
     per_page = request.GET.get("per_page", 50)
 
-    if not (variant or gene or dbsnp):
+    if not (variant or gene or dbsnp or patient_id):
         return JsonResponse(
             {"results": [], "meta": {"has_next": False, "total_count": 0}}
         )
 
     try:
-        response_data = query_variants(variant, gene, dbsnp, page_number, per_page)
+        response_data = query_variants(
+            variant, gene, dbsnp, page_number, per_page, patient_id=patient_id
+        )
         return JsonResponse(response_data)
     except Exception as e:
         logger.exception("Chyba při vyhledávání variant.")
@@ -200,4 +206,43 @@ def dashboard_stats(request):
     except Exception as e:
         logger.exception("Chyba při načítání statistik databáze.")
         return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
+
+
+@login_required_json
+@require_http_methods(["DELETE", "POST"])
+def delete_patient_variant_view(request, variant_id: int):
+    """
+    Deletes a specific patient variant observation.
+    Requires user to be the report creator or staff/superuser.
+    """
+    try:
+        result = delete_patient_variant(variant_id, request.user)
+        return JsonResponse(result)
+    except Http404 as e:
+        return JsonResponse({"error": str(e)}, status=404)
+    except PermissionDenied as e:
+        return JsonResponse({"error": str(e)}, status=403)
+    except Exception as e:
+        logger.exception("Chyba při mazání varianty.")
+        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
+
+
+@login_required_json
+@require_http_methods(["DELETE", "POST"])
+def delete_genetic_report_view(request, report_id: int):
+    """
+    Deletes an entire genetic report and all associated patient variants.
+    Requires user to be the report creator or staff/superuser.
+    """
+    try:
+        result = delete_genetic_report(report_id, request.user)
+        return JsonResponse(result)
+    except Http404 as e:
+        return JsonResponse({"error": str(e)}, status=404)
+    except PermissionDenied as e:
+        return JsonResponse({"error": str(e)}, status=403)
+    except Exception as e:
+        logger.exception("Chyba při mazání reportu.")
+        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
+
 
