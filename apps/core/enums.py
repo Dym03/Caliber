@@ -15,6 +15,7 @@ class ClassificationEnum(Enum):
     HYPOMORF_VARIANT = "Hypomorph variant"
     PHARMACO_RISK_FACTOR = "Pharmaco risk factor"
     SOMATIC = "Somatic"
+    UNCLASSIFIED = "Unclassified"
 
     @classmethod
     def from_clinvar_string(cls, value: str | None) -> "ClassificationEnum":
@@ -70,7 +71,7 @@ class ClassificationEnum(Enum):
     @classmethod
     def from_excel_string(cls, value: str | None) -> "ClassificationEnum":
         if not value:
-            return cls.UNCERTAIN_SIGNIFICANCE
+            return ClassificationEnum.UNCLASSIFIED
         norm = value.strip()
         return cls._EXCEL_MAP.get(norm, cls.UNCERTAIN_SIGNIFICANCE)
 
@@ -95,6 +96,7 @@ ClassificationEnum._DIRECT_MAP = {
     "hypomorph variant": ClassificationEnum.HYPOMORF_VARIANT,
     "pharmaco risk factor": ClassificationEnum.PHARMACO_RISK_FACTOR,
     "somatic": ClassificationEnum.SOMATIC,
+    "" : ClassificationEnum.UNCLASSIFIED,
 }
 
 ClassificationEnum._EXCEL_MAP = {
@@ -111,6 +113,7 @@ ClassificationEnum._EXCEL_MAP = {
     "1-2": ClassificationEnum.BENIGN_LIKELY_BENIGN,
     "1": ClassificationEnum.BENIGN,
     "0": ClassificationEnum.ARTEFACT,
+    "": ClassificationEnum.UNCLASSIFIED,
 }
 
 ClassificationEnum._CLASSIFICATION_SCORE_TO_STRING = {
@@ -127,6 +130,7 @@ ClassificationEnum._CLASSIFICATION_SCORE_TO_STRING = {
     1.5: "1-2",
     1.0: "1",
     0.0: "0",
+    -1.0 : "",
 }
 
 ClassificationEnum._SCORES = {
@@ -143,4 +147,5 @@ ClassificationEnum._SCORES = {
     ClassificationEnum.BENIGN_LIKELY_BENIGN: 1.5,
     ClassificationEnum.BENIGN: 1.0,
     ClassificationEnum.ARTEFACT : 0.0,
+    ClassificationEnum.UNCLASSIFIED : -1.0,
 }

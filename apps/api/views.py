@@ -19,7 +19,6 @@ from apps.core.management.commands.init_db import parse_excel_hgvs
 
 logger = logging.getLogger(__name__)
 
-# TODO: Add authentication and permissions to restrict access to these endpoints
 # TODO: Imporove FE part so it displays all the info about the variant in the detail.
 @login_required_json
 def search_variants(request):
@@ -111,8 +110,9 @@ def classify_variants(request):
         return JsonResponse({"error": "No file provided."}, status=400)
 
     allowed_extensions = {
-        ".xlsx"
-    }  # Currently only supporting .xlsx for classification due to usage of openpyxl, but can be extended to .xls with additional handling if needed
+        ".xlsx",
+        ".xls"
+    }
     name_lower = uploaded_file.name.lower()
     if not any(name_lower.endswith(ext) for ext in allowed_extensions):
         return JsonResponse(
@@ -124,25 +124,20 @@ def classify_variants(request):
         file_bytes = uploaded_file.read()
         df = pl.read_excel(io.BytesIO(file_bytes))
 
-        gene_col = None
         hgsv_c_col = None
         dbsnp_col = None
 
         for orig_col in df.columns:
             low = orig_col.lower()
-            if low in ["symbol", "gene"]:
-                gene_col = orig_col
-            elif low in ["nucleotide"]:
-                hgsv_c_col = orig_col
-            elif low in ["hgvsc"]:
+            if low in ["nucleotide", 'hgvsc']:
                 hgsv_c_col = orig_col
             elif low in ["vep dbsnp id", "dbsnp"]:
                 dbsnp_col = orig_col
 
-        if not (gene_col or hgsv_c_col or dbsnp_col):
+        if not (hgsv_c_col or dbsnp_col):
             return JsonResponse(
                 {
-                    "error": "Chybná struktura Excelu. Tabulka musí obsahovat alespoň jeden ze sloupců: Gen, Varianta, dbSNP."
+                    "error": "Chybná struktura Excelu. Tabulka musí obsahovat alespoň jeden ze sloupců: Varianta, dbSNP."
                 },
                 status=400,
             )

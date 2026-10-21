@@ -161,14 +161,14 @@
         bind:this={fileInputRef}
         class="file-input"
         type="file"
-        accept=".xlsx,.xls,.csv"
+        accept=".xlsx,.xls"
         multiple
         onchange={handleFileChange}
       />
       <div class="dropzone-content">
         <span class="dropzone-title">Přetáhněte soubor nebo</span>
         <span class="browse-button">Vybrat soubor</span>
-        <span class="dropzone-hint">Podporuje .xlsx, .xls, .csv</span>
+        <span class="dropzone-hint">Podporuje .xlsx, .xls</span>
       </div>
       <div class="file-meta">
         <span class="file-name">

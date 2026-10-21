@@ -42,6 +42,11 @@
     
     <div class="modal-body">
       <div class="detail-group">
+        <span class="muted">Varianta (HGVS)</span>
+        <p class="selectable mono-full">{variant.variant || '—'}</p>
+      </div>
+
+      <div class="detail-group">
         <span class="muted">Pacient ID</span>
         <p>{variant.patient_id}</p>
       </div>

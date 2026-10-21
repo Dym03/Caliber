@@ -40,12 +40,12 @@
     if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
       const file = event.dataTransfer.files[0];
       // Ověření, že jde o Excel
-      if (file.name.endsWith('.xlsx')) {
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
         selectedFile = file;
         errorMessage = '';
         successMessage = '';
       } else {
-        errorMessage = 'Neplatný formát souboru. Nahrajte prosím soubor typu .xlsx (Excel).';
+        errorMessage = 'Neplatný formát souboru. Nahrajte prosím soubor typu .xlsx, .xls (Excel).';
       }
     }
   }
@@ -133,7 +133,7 @@
           type="file" 
           id="batch-file-input" 
           class="file-input" 
-          accept=".xlsx" 
+          accept=".xlsx, .xls" 
           onchange={handleFileChange} 
         />
         
@@ -142,7 +142,7 @@
           <label for="batch-file-input" class="browse-button">
             Vybrat soubor
           </label>
-          <span class="dropzone-hint">Podporován je pouze formát .xlsx</span>
+          <span class="dropzone-hint">Podporován je pouze formát .xlsx, .xls</span>
         </div>
       </div>
 

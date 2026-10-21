@@ -1,3 +1,4 @@
+from collections import defaultdict
 import io
 import logging
 import os
@@ -5,9 +6,8 @@ import re
 import tempfile
 import polars as pl
 from django.db import transaction
-from apps import core
-from apps.core.management.commands.init_db import parse_df, sheet_exists
-from openpyxl import load_workbook
+from apps.core.management.commands.init_db import parse_df
+import fastexcel
 from django.db.models import Q, Subquery, OuterRef
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 from apps.core.models import Gene, GeneVariant, PatientVariant, User
@@ -146,7 +146,7 @@ def query_variants(
                     "chromosome": var_obj.chromosome,
                     "position": var_obj.position,
                     "updated_at": item.report.updated_at.isoformat(),
-                    "category": item.category or "",
+                    "category": item.category if item.category is not None else None,
                     "clinvar": clinvar_data,
                     "comment": item.comment or None,
                 }
@@ -200,13 +200,13 @@ def process_uploaded_variants_file(uploaded_file, user: User | None = None) -> d
         tmp_path = tmp_file.name
 
     try:
-        workbook = load_workbook(tmp_path, read_only=True)
-        sheet_names = workbook.sheetnames
+        excel_reader = fastexcel.read_excel(tmp_path)
+        sheet_names = excel_reader.sheet_names
         logger.info(f"Processing uploaded file '{name}' with sheets: {sheet_names}")
         rows_processed = 0
         for sheet in sheet_names:
             if re.match(r"^\d+-\d+.*$", sheet): # [1-9]*-[1-9]*... pattern
-                df = pl.read_excel(tmp_path, sheet_name=sheet)
+                df = excel_reader.load_sheet(sheet).to_polars()
                 patient_id = parse_patient_id(sheet)
                 with transaction.atomic():
                     parse_df(df, name, user=user, patient_id=patient_id)
@@ -214,7 +214,6 @@ def process_uploaded_variants_file(uploaded_file, user: User | None = None) -> d
 
         return {"filename": name, "rows": rows_processed}
     finally:
-        workbook.close()
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
@@ -237,6 +236,46 @@ def format_classification(clinic_val, clinvar_val) -> tuple[str, str]:
         return cv_str, "Pouze v ClinVar katalogu"
     return "—", "Nenalezeno žádné hodnocení"
 
+def resolve_matches(matches: list[dict], format_classification_fn) -> dict:
+    """Sloučí více nalezených variant se stejným klíčem dohromady.
+
+    Pokud jedna nese klinické hodnocení a druhá ClinVar, spojí je do jednoho
+    výstupu.
+    """
+    if not matches:
+        return {
+            "Zhodnoceni_Patogenity": "Neklasifikováno",
+            "ClinVar_ID": "—",
+            "Status_Kontroly": "Nenalezeno v DB",
+        }
+
+    clinic_scores = [
+        m["clinic_score"] for m in matches if m["clinic_score"] is not None
+    ]
+    clinvar_scores = [
+        m["clinvar_score"] for m in matches if m["clinvar_score"] is not None
+    ]
+    clinvar_ids = [
+        str(m["clinvar_id"])
+        for m in matches
+        if m["clinvar_id"] and m["clinvar_id"] != "—"
+    ]
+
+    best_clinic = clinic_scores[0] if clinic_scores else None
+    best_clinvar = clinvar_scores[0] if clinvar_scores else None
+    merged_clinvar_id = (
+        ", ".join(dict.fromkeys(clinvar_ids)) if clinvar_ids else "—"
+    )
+
+    final_score, match_status = format_classification_fn(
+        best_clinic, best_clinvar
+    )
+
+    return {
+        "Zhodnoceni_Patogenity": final_score or "Neklasifikováno",
+        "ClinVar_ID": merged_clinvar_id,
+        "Status_Kontroly": match_status,
+    }
 
 def get_variant_hashes_from_db(
     unique_dbsnps: list[str], unique_variants: list[str]
@@ -246,8 +285,8 @@ def get_variant_hashes_from_db(
     1. dbsnp_map: Maps cleaned dbSNP IDs to their classification and ClinVar ID.
     2. hgvs_map: Maps cleaned HGVS notations (with and without gene symbol) to their classification and ClinVar ID.
     """
-    dbsnp_map = {}
-    hgvs_map = {}
+    dbsnp_map = defaultdict(list)
+    hgvs_map = defaultdict(list)
 
     db_filters = Q()
     if unique_dbsnps:
@@ -283,18 +322,19 @@ def get_variant_hashes_from_db(
             )
             clinic_score = gv.latest_clinic_cat
 
-            final_score, match_status = format_classification(
-                clinic_score, clinvar_score
-            )
-
             variant_data = {
-                "final_score": final_score,
+                "variant_id": gv.pk,
+                "clinic_score": clinic_score,
+                "clinvar_score": clinvar_score,
                 "clinvar_id": clinvar_id,
-                "status": match_status,
             }
 
             if gv.dbsnp:
-                dbsnp_map[gv.dbsnp.strip().lower()] = variant_data
+                dbsnp_key = gv.dbsnp.strip().lower()
+                if not any(
+                    item["variant_id"] == gv.pk for item in dbsnp_map[dbsnp_key]
+                ):
+                    dbsnp_map[dbsnp_key].append(variant_data)
 
             variant_genes = [g.symbol.strip().lower() for g in gv.genes.all()]
 
@@ -302,14 +342,21 @@ def get_variant_hashes_from_db(
                 if ann.hgvs_c:
                     c_clean = ann.hgvs_c.strip()
                     # Záložní klíč bez genu pro případ prázdného variant_genes
-                    hgvs_map[c_clean] = variant_data
+                    if not any(
+                        item["variant_id"] == gv.pk for item in hgvs_map[c_clean]
+                    ):
+                        hgvs_map[c_clean].append(variant_data)
                     for g_sym in variant_genes:
-                        hgvs_map[(g_sym, c_clean)] = variant_data
+                        pair_key = (g_sym, c_clean)
+                        if not any(
+                            item["variant_id"] == gv.pk
+                            for item in hgvs_map[pair_key]
+                        ):
+                            hgvs_map[pair_key].append(variant_data)
 
-    return dbsnp_map, hgvs_map
+    return dict(dbsnp_map), dict(hgvs_map)
 
 
-#TODO: Choose correct sheet for annotation, currently it takes the active
 def annotate_excel_workbook(
     file_bytes: bytes, dbsnp_map: dict, hgvs_map: dict
 ) -> io.BytesIO:
@@ -317,79 +364,109 @@ def annotate_excel_workbook(
     Loads the uploaded Excel file, iterates through its rows, and annotates each variant based on dbSNP ID or HGVS notation using the provided hash maps.
     Adds three new columns for classification, ClinVar ID, and match status. Returns a Bytes
     """
+    import xlsxwriter
 
-    wb = load_workbook(io.BytesIO(file_bytes))
-    ws = wb.active
+    excel_reader = fastexcel.read_excel(file_bytes)
+    sheet_names = excel_reader.sheet_names
+    annotated_sheets = {}
 
-    orig_headers = [cell.value for cell in ws[1]]
-    openpyxl_gene_idx = openpyxl_variant_idx = openpyxl_dbsnp_idx = None
-
-    for idx, h_name in enumerate(orig_headers, start=1):
-        if not h_name:
-            continue
-        low = str(h_name).lower()
-        if low in ["symbol", "gene"]:
-            openpyxl_gene_idx = idx
-        elif low in ["nucleotide", "hgvsc"]:
-            openpyxl_variant_idx = idx
-        elif low in ["vep dbsnp id", "dbsnp"]:
-            openpyxl_dbsnp_idx = idx
-
-    start_col = len(orig_headers) + 1
-
-    ws.cell(row=1, column=start_col, value="Zhodnoceni_Patogenity")
-    ws.cell(row=1, column=start_col + 1, value="ClinVar_ID")
-    ws.cell(row=1, column=start_col + 2, value="Status_Kontroly")
-
-    for row_num in range(2, ws.max_row + 1):
-        gene_val = (
-            ws.cell(row=row_num, column=openpyxl_gene_idx).value
-            if openpyxl_gene_idx
-            else None
-        )
-        variant_val = (
-            ws.cell(row=row_num, column=openpyxl_variant_idx).value
-            if openpyxl_variant_idx
-            else None
-        )
-        dbsnp_val = (
-            ws.cell(row=row_num, column=openpyxl_dbsnp_idx).value
-            if openpyxl_dbsnp_idx
-            else None
-        )
-
+    def annotate_row(gene_val, variant_val, dbsnp_val) -> dict:
         g_clean = parse_excel_genes(gene_val) if gene_val else ""
-        d_clean = parse_excel_dbsnp(str(dbsnp_val)) if dbsnp_val else ""
-
-        _, _, hgvs = parse_excel_hgvs(str(variant_val)) if variant_val else ""
-        logger.debug(
-            f"Processing row {row_num}: Gene='{gene_val}', Variant='{variant_val}', dbSNP='{dbsnp_val}' -> Cleaned Gene='{g_clean}', Cleaned Variant='{hgvs}', Cleaned dbSNP='{d_clean}'"
+        d_clean = (
+            parse_excel_dbsnp(str(dbsnp_val)) if dbsnp_val is not None else ""
         )
 
-        match = None
+        hgvs = ""
+        if variant_val is not None:
+            parsed = parse_excel_hgvs(str(variant_val))
+            if parsed and len(parsed) >= 3:
+                hgvs = parsed[2]
+
+        collected_matches = []
+        seen_ids = set()
+
+        def add_matches(items: list[dict]):
+            for item in items:
+                v_id = item.get("variant_id")
+                if v_id not in seen_ids:
+                    seen_ids.add(v_id)
+                    collected_matches.append(item)
+
+        # 1. Shoda podle dbSNP
         if d_clean and d_clean in dbsnp_map:
-            match = dbsnp_map[d_clean]
-        elif g_clean and hgvs:
+            add_matches(dbsnp_map[d_clean])
+
+        # 2. Shoda podle (gene, hgvs)
+        if g_clean and hgvs:
             for g in g_clean:
-                g = g.strip().lower()
-                if (g, hgvs) in hgvs_map:
-                    match = hgvs_map[(g, hgvs)]
-                    break
+                pair = (g.strip().lower(), hgvs)
+                if pair in hgvs_map:
+                    add_matches(hgvs_map[pair])
 
-        if not match and hgvs and hgvs in hgvs_map:
-            match = hgvs_map[hgvs]
+        # 3. Shoda podle samotného HGVS (pokud nic předchozího nenašlo shodu)
+        if not collected_matches and hgvs and hgvs in hgvs_map:
+            add_matches(hgvs_map[hgvs])
 
-        if match:
-            ws.cell(row=row_num, column=start_col, value=match["final_score"])
-            ws.cell(row=row_num, column=start_col + 1, value=match["clinvar_id"])
-            ws.cell(row=row_num, column=start_col + 2, value=match["status"])
-        else:
-            ws.cell(row=row_num, column=start_col, value="Neklasifikováno")
-            ws.cell(row=row_num, column=start_col + 1, value="—")
-            ws.cell(row=row_num, column=start_col + 2, value="Nenalezeno v DB")
+        # Sloučení všech nalezených záznamů a formátování výsledku
+        return resolve_matches(collected_matches, format_classification)
+
+    for sheet in sheet_names:
+        if re.match(r"^\d+-\d+.*$", sheet): # [1-9]*-[1-9]*... pattern
+            df = excel_reader.load_sheet(sheet).to_polars()
+            orig_headers = df.columns
+            logger.debug(f"Processing sheet '{sheet}' with headers: {orig_headers}")
+            gene_col = variant_col = dbsnp_col = None
+            for idx, col in enumerate(orig_headers, start=1):
+                if not col:
+                    continue
+                low = str(col).strip().lower()
+                if low in ["symbol", "gene"]:
+                    gene_col = col
+                elif low in ["nucleotide", "hgvsc"]:
+                    variant_col = col
+                elif low in ["vep dbsnp id", "dbsnp"]:
+                    dbsnp_col = col
+
+            if any([gene_col, variant_col, dbsnp_col]): # If none of the required columns are found, keep the sheet unmodified
+                annotations = [
+                    annotate_row(
+                        row.get(gene_col) if gene_col else None,
+                        row.get(variant_col) if variant_col else None,
+                        row.get(dbsnp_col) if dbsnp_col else None,
+                    )
+                    for row in df.iter_rows(named=True)
+                ]
+
+                # Convert annotations to Polars DataFrame and append columns
+                ann_df = pl.DataFrame(
+                    annotations,
+                    schema={
+                        "Zhodnoceni_Patogenity": pl.Utf8,
+                        "ClinVar_ID": pl.Utf8,
+                        "Status_Kontroly": pl.Utf8,
+                    },
+                )
+
+                df = df.with_columns(
+                    ann_df["Zhodnoceni_Patogenity"],
+                    ann_df["ClinVar_ID"],
+                    ann_df["Status_Kontroly"],
+                )
+
+                annotated_sheets[sheet] = df
 
     output = io.BytesIO()
-    wb.save(output)
+    with xlsxwriter.Workbook(output, {"in_memory": True}) as workbook:
+        for sheet_title, sheet_df in annotated_sheets.items():
+
+            safe_title = sheet_title[:31] # Excel sheet title limit
+
+            sheet_df.write_excel(
+                workbook=workbook,
+                worksheet=safe_title,
+                autofit=True,
+            )
+
     output.seek(0)
     return output
 
@@ -421,7 +498,7 @@ def get_dashboard_statistics() -> dict:
         PatientVariant.objects.values("variant_id").distinct().count()
     )
     pathogenic_patients = (
-        PatientVariant.objects.filter(category__gte=4.0)
+        PatientVariant.objects.filter(category__gte=4.0, category__lte=5.0) # Categories 4 and 5 are considered pathogenic
         .values("report__patient_id")
         .distinct()
         .count()
@@ -472,6 +549,7 @@ def get_dashboard_statistics() -> dict:
         },
         1.0: {"label": "Třída 1 – Benigní", "class": "c1"},
         0.0: {"label": "Artefakt / Jiné", "class": "c0"},
+        -1.0: {"label": "Neklasifikováno", "class": "c-1"},
     }
 
     categories_breakdown = []

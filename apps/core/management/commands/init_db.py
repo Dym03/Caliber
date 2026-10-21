@@ -50,6 +50,8 @@ def sheet_exists(path: str, sheet: str) -> bool:
 def clean_str(value: object, null_if_empty: bool = False) -> str | None:
     if value is None or value == "-":
         return None if null_if_empty else ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
     cleaned = str(value).strip()
     return cleaned
 
@@ -59,12 +61,16 @@ def clean_int(value: object) -> int | None:
         return None
     return int(value)
 
-def parse_patient_id(value: str | None) -> str | None:
+def parse_patient_id(value: object) -> str | None:
     if value is None:
         return None
-    cleaned = value.strip()
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    cleaned = str(value).strip()
     if '-' in cleaned:
         cleaned = cleaned.split('-')[0].strip()
+    if cleaned.endswith('.0') and cleaned[:-2].isdigit():
+        cleaned = cleaned[:-2]
     return cleaned
 
 def normalize_var_type(var_type: str) -> str:
@@ -149,7 +155,12 @@ def parse_row(row, patient_id: str | None) -> dict:
     cleaned_data["variation_type"] = normalize_var_type(
         row.get("Variant_class") or row.get("Variation Type")
     )
-    cleaned_data["chromosome"] = clean_str(row.get("Chr"))
+    chrom = clean_str(row.get("Chr"))
+    if chrom:
+        chrom = chrom.removesuffix(".0")
+        if not chrom.lower().startswith("chr"):
+            chrom = f"chr{chrom}"
+    cleaned_data["chromosome"] = chrom
     cleaned_data["position"] = clean_int(
         row.get("Coordinate") or row.get("Start Position")
     )
@@ -301,6 +312,7 @@ def parse_df(
     if owns_cache:
         caches = ImportCaches()
 
+    patient_id = clean_str(patient_id)
     try:
         for row in df.iter_rows(named=True):
             cleaned_data = parse_row(row, patient_id=patient_id)
