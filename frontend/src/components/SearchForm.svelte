@@ -79,7 +79,7 @@
     </label>
     <label class="field">
       <span>Pacient ID</span>
-      <input type="text" placeholder="např. 12345" bind:value={patientIdQuery} />
+      <input type="text" placeholder="12345" bind:value={patientIdQuery} />
     </label>
     <div class="actions">
       <button type="submit" class="ghost" disabled={isSearching}>

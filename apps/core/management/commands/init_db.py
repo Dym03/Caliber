@@ -55,11 +55,39 @@ def clean_str(value: object, null_if_empty: bool = False) -> str | None:
     cleaned = str(value).strip()
     return cleaned
 
+def parse_chrom(chrom: str | None) -> str | None:
+    if chrom is None:
+        return None
+    chrom = clean_str(chrom)
+    if chrom.endswith(".0"):
+        chrom = chrom[:-2]
+    lower = chrom.lower()
+    if lower in ("chr", "chromosome", "chrom"):
+        return None
+    if lower.startswith("chr"):
+        suffix = lower[3:].strip()
+        if suffix.isdigit() or suffix in ["x", "y", "m", "mt"]:
+            return f"chr{suffix.upper() if suffix in ['x', 'y', 'm', 'mt'] else suffix}"
+        return None
+    if chrom.isdigit() or lower in ["x", "y", "m", "mt"]:
+        return f"chr{lower.upper() if lower in ['x', 'y', 'm', 'mt'] else chrom}"
+    return None
+
 
 def clean_int(value: object) -> int | None:
-    if value in (None, "", "nan"):
+    if value in (None, "", "nan", "-"):
         return None
-    return int(value)
+    try:
+        if isinstance(value, str):
+            value = value.strip()
+            if not value or value.lower() in ("nan", "none", "-", "null"):
+                return None
+            return int(float(value))
+        if isinstance(value, float):
+            return int(value) if value == value else None
+        return int(value)
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 def parse_patient_id(value: object) -> str | None:
     if value is None:
@@ -144,10 +172,15 @@ def parse_excel_genes(excel_string) -> list:
 
 
 
-def parse_row(row, patient_id: str | None) -> dict:
+def parse_row(row, patient_id: str | None) -> dict | None:
+    if not row:
+        return None
     cleaned_data = {}
+    
     cleaned_data["patient_id"] = clean_str(row.get("Name")) or patient_id
     cleaned_data["patient_id"] = parse_patient_id(cleaned_data["patient_id"])
+    if not cleaned_data["patient_id"] or not cleaned_data["patient_id"].isdigit():
+        return None
     cleaned_data["gene_symbols"] = parse_excel_genes(
         row.get("Symbol") or row.get("Gene")
     )
@@ -155,11 +188,9 @@ def parse_row(row, patient_id: str | None) -> dict:
     cleaned_data["variation_type"] = normalize_var_type(
         row.get("Variant_class") or row.get("Variation Type")
     )
-    chrom = clean_str(row.get("Chr"))
-    if chrom:
-        chrom = chrom.removesuffix(".0")
-        if not chrom.lower().startswith("chr"):
-            chrom = f"chr{chrom}"
+    chrom = parse_chrom(row.get("Chr"))
+    if not chrom:
+        return None
     cleaned_data["chromosome"] = chrom
     cleaned_data["position"] = clean_int(
         row.get("Coordinate") or row.get("Start Position")
@@ -290,16 +321,17 @@ def persist_row(
     report, _ = GeneticReport.objects.get_or_create(
         patient=patient, report_name=file_name, defaults={"created_by": user}
     )
-
-    PatientVariant.objects.get_or_create(
-        report=report,
-        variant=gene_variant,
-        zygosity=data["zygosity"],
-        category=data["category"],
-        comment=data["comment"],
-        reported_hgvs_c=data["hgvs_coding"],
-    )
-
+    try:
+        PatientVariant.objects.get_or_create(
+            report=report,
+            variant=gene_variant,
+            zygosity=data["zygosity"],
+            category=data["category"],
+            comment=data["comment"],
+            reported_hgvs_c=data["hgvs_coding"],
+        )
+    except Exception as e:
+        logger.error(f"Skipping Variant {gene_variant.id} already linked to report {report.id}. Error: {e}")
 
 def parse_df(
     df: pl.DataFrame,
@@ -316,7 +348,8 @@ def parse_df(
     try:
         for row in df.iter_rows(named=True):
             cleaned_data = parse_row(row, patient_id=patient_id)
-            persist_row(cleaned_data, file_name, user=user, caches=caches)
+            if cleaned_data is not None:
+                persist_row(cleaned_data, file_name, user=user, caches=caches)
     finally:
         if owns_cache:
             caches.clear()

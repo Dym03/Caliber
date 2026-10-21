@@ -89,3 +89,7 @@ admin.site.register(GeneVariant)
 admin.site.register(TranscriptAnnotation)
 admin.site.register(GeneticReport)
 admin.site.register(PatientVariant)
+
+admin.site.site_header = "Caliber Administrace"
+admin.site.site_title = "Caliber Admin"
+admin.site.index_title = "Správa registru"

@@ -3,10 +3,11 @@
     currentView: 'registry' | 'batch' | 'dashboard'
     onviewchange: (view: 'registry' | 'batch' | 'dashboard') => void
     userLabel: string
+    isStaff?: boolean
     onlogout: () => void
   }
 
-  let { currentView, onviewchange, userLabel, onlogout }: Props = $props()
+  let { currentView, onviewchange, userLabel, isStaff = false, onlogout }: Props = $props()
 </script>
 
 <header class="topbar">
@@ -48,6 +49,11 @@
     </nav>
     <div class="spacer"></div>
     <div class="topbar-actions">
+      {#if isStaff}
+        <a href="/admin/" class="ghost nav-btn admin-topbar-link" target="_blank" rel="noreferrer">
+          Administrace ↗
+        </a>
+      {/if}
       <div class="user-chip">
         <span class="user-chip__label">Přihlášen</span>
         <span class="user-chip__value">{userLabel}</span>

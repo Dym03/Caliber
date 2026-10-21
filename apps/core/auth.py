@@ -20,6 +20,8 @@ def serialize_user(user):
     return {
         "email": user.email,
         "username": user.username,
+        "is_staff": bool(user.is_staff),
+        "is_superuser": bool(user.is_superuser),
     }
 
 

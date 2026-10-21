@@ -20,7 +20,9 @@
 
   type AuthUser = {
     email: string
-    username : string
+    username: string
+    is_staff?: boolean
+    is_superuser?: boolean
   }
 
   type AuthResponse = {
@@ -253,6 +255,7 @@
       {currentView}
       onviewchange={(view) => (currentView = view)}
       userLabel={`${currentUser.username} · ${currentUser.email}`}
+      isStaff={currentUser.is_staff || false}
       onlogout={handleLogout}
     />
     {#if currentView === 'registry'}

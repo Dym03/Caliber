@@ -1,0 +1,84 @@
+{% load static %}
+<!doctype html>
+<html lang="cs">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Přihlášení správce | Caliber</title>
+    <link rel="stylesheet" href="{% static 'svelte/main.css' %}">
+</head>
+<body>
+    <div class="auth-shell">
+        <header class="auth-header">
+            <h1>Caliber</h1>
+            <p class="admin-subtitle">Správa a administrace registru</p>
+        </header>
+
+        <section class="card auth-card">
+            <div class="admin-badge-wrap" style="display: flex; margin-bottom: 1.5rem;">
+                <span class="admin-badge">Přihlášení správce</span>
+            </div>
+
+            {% if form.errors and not form.non_field_errors %}
+                <div class="auth-error">
+                    <p>Zkontrolujte prosím zadané údaje a zkuste to znovu.</p>
+                </div>
+            {% endif %}
+
+            {% if form.non_field_errors %}
+                <div class="auth-error">
+                    {% for error in form.non_field_errors %}
+                        <p>{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% if user.is_authenticated and not user.is_staff %}
+                <div class="auth-error">
+                    <p>Jste přihlášen(a) jako <strong>{{ user.email }}</strong>, ale tento účet nemá administrátorská oprávnění.</p>
+                </div>
+            {% endif %}
+
+            <form action="{{ app_path }}" method="post" class="auth-form" id="login-form">
+                {% csrf_token %}
+
+                <label class="field auth-field">
+                    <span>E-mail</span>
+                    <input 
+                        type="email" 
+                        name="username" 
+                        id="id_username" 
+                        value="{{ form.username.value|default:'' }}" 
+                        placeholder="admin@nemocnice.cz" 
+                        autocomplete="email" 
+                        autofocus 
+                        required 
+                    />
+                </label>
+
+                <label class="field auth-field">
+                    <span>Heslo</span>
+                    <input 
+                        type="password" 
+                        name="password" 
+                        id="id_password" 
+                        autocomplete="current-password" 
+                        placeholder="••••••••" 
+                        required 
+                    />
+                </label>
+
+                <input type="hidden" name="next" value="{{ next|default:'/admin/' }}">
+
+                <button type="submit" class="ghost auth-submit">
+                    Přihlásit se do administrace
+                </button>
+            </form>
+
+            <div class="auth-footer">
+                <a href="{% url 'index' %}" class="back-link">← Zpět do aplikace Caliber</a>
+            </div>
+        </section>
+    </div>
+</body>
+</html>
