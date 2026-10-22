@@ -143,5 +143,3 @@ class ClinVarBulkImporterTests(TestCase):
         self.assertEqual(annotations[0].hgvs_p, long_hgvs_p)
         self.assertEqual(annotations[1].transcript_base, "NM_001002")
         self.assertEqual(annotations[1].hgvs_c, long_hgvs_c)
-
-

@@ -1,12 +1,13 @@
 <script lang="ts">
   interface Props {
-    currentView: 'registry' | 'batch'
-    onviewchange: (view: 'registry' | 'batch') => void
-    userLabel: string
-    onlogout: () => void
+    currentView: 'registry' | 'batch' | 'dashboard';
+    onviewchange: (view: 'registry' | 'batch' | 'dashboard') => void;
+    userLabel: string;
+    isStaff?: boolean;
+    onlogout: () => void;
   }
 
-  let { currentView, onviewchange, userLabel, onlogout }: Props = $props()
+  let { currentView, onviewchange, userLabel, isStaff = false, onlogout }: Props = $props();
 </script>
 
 <header class="topbar">
@@ -38,16 +39,26 @@
       >
         Klasifikace
       </button>
+      <button
+        type="button"
+        class="ghost nav-btn {currentView === 'dashboard' ? 'active' : ''}"
+        onclick={() => onviewchange('dashboard')}
+      >
+        Přehled databáze
+      </button>
     </nav>
-
+    <div class="spacer"></div>
     <div class="topbar-actions">
+      {#if isStaff}
+        <a href="/admin/" class="ghost nav-btn admin-topbar-link" target="_blank" rel="noreferrer">
+          Administrace ↗
+        </a>
+      {/if}
       <div class="user-chip">
         <span class="user-chip__label">Přihlášen</span>
         <span class="user-chip__value">{userLabel}</span>
       </div>
-      <button type="button" class="ghost logout-btn" onclick={onlogout}>
-        Odhlásit
-      </button>
+      <button type="button" class="ghost logout-btn" onclick={onlogout}> Odhlásit </button>
     </div>
   </div>
 </header>

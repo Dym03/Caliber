@@ -1,10 +1,10 @@
-import { svelte } from '@sveltejs/vite-plugin-svelte'
-import autoprefixer from 'autoprefixer'
-import { defineConfig } from 'vite'
+import { svelte } from '@sveltejs/vite-plugin-svelte';
+import autoprefixer from 'autoprefixer';
+import { defineConfig } from 'vite';
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const production = mode === 'production'
+  const production = mode === 'production';
 
   return {
     plugins: [svelte({ emitCss: true })],
@@ -24,9 +24,9 @@ export default defineConfig(({ mode }) => {
           entryFileNames: 'main.js',
           assetFileNames: (assetInfo) => {
             if (assetInfo.name && assetInfo.name.endsWith('.css')) {
-              return 'main.css'
+              return 'main.css';
             }
-            return 'assets/[name][extname]'
+            return 'assets/[name][extname]';
           },
         },
       },
@@ -36,5 +36,5 @@ export default defineConfig(({ mode }) => {
         plugins: [autoprefixer()],
       },
     },
-  }
-})
+  };
+});

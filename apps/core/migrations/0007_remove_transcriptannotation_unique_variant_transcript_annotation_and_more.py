@@ -4,33 +4,35 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('core', '0006_remove_genevariant_unique_genomic_variant_and_more'),
+        ("core", "0006_remove_genevariant_unique_genomic_variant_and_more"),
     ]
 
     operations = [
         migrations.RemoveConstraint(
-            model_name='transcriptannotation',
-            name='unique_variant_transcript_annotation',
+            model_name="transcriptannotation",
+            name="unique_variant_transcript_annotation",
         ),
         migrations.AlterField(
-            model_name='patientvariant',
-            name='reported_hgvs_c',
+            model_name="patientvariant",
+            name="reported_hgvs_c",
             field=models.TextField(blank=True),
         ),
         migrations.AlterField(
-            model_name='transcriptannotation',
-            name='hgvs_c',
+            model_name="transcriptannotation",
+            name="hgvs_c",
             field=models.TextField(blank=True, null=True),
         ),
         migrations.AlterField(
-            model_name='transcriptannotation',
-            name='hgvs_p',
+            model_name="transcriptannotation",
+            name="hgvs_p",
             field=models.TextField(blank=True),
         ),
         migrations.AddConstraint(
-            model_name='transcriptannotation',
-            constraint=models.UniqueConstraint(fields=('variant', 'transcript_base', 'hgvs_c'), name='unique_variant_transcript_annotation'),
+            model_name="transcriptannotation",
+            constraint=models.UniqueConstraint(
+                fields=("variant", "transcript_base", "hgvs_c"),
+                name="unique_variant_transcript_annotation",
+            ),
         ),
     ]

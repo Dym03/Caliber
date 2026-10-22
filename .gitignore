@@ -106,7 +106,8 @@ env/
 venv/ 
 ENV/ 
 env.bak/ 
-venv.bak/ 
+venv.bak/
+docker-compose.override.yml
 
 # mkdocs documentation 
 /site 
@@ -138,6 +139,10 @@ GitHub.sublime-settings
 !.vscode/launch.json 
 !.vscode/extensions.json 
 .history
+
+# SvelteKit #
+node_modules/
+.svelte-kit/
 
 /data
 /orig_data

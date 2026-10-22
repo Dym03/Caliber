@@ -5,28 +5,28 @@ from django.db import migrations, models
 
 def populate_allele_hash(apps, schema_editor):
     import hashlib
-    GeneVariant = apps.get_model('core', 'GeneVariant')
+
+    GeneVariant = apps.get_model("core", "GeneVariant")
     for gv in GeneVariant.objects.all():
         ref = gv.ref_allele or ""
         alt = gv.alt_allele or ""
         gv.allele_hash = hashlib.sha256(f"{ref}>{alt}".encode()).hexdigest()
-        gv.save(update_fields=['allele_hash'])
+        gv.save(update_fields=["allele_hash"])
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('core', '0005_alter_genevariant_alt_allele_and_more'),
+        ("core", "0005_alter_genevariant_alt_allele_and_more"),
     ]
 
     operations = [
         migrations.RemoveConstraint(
-            model_name='genevariant',
-            name='unique_genomic_variant',
+            model_name="genevariant",
+            name="unique_genomic_variant",
         ),
         migrations.AddField(
-            model_name='genevariant',
-            name='allele_hash',
+            model_name="genevariant",
+            name="allele_hash",
             field=models.CharField(blank=True, db_index=True, max_length=64),
         ),
         migrations.RunPython(
@@ -34,7 +34,10 @@ class Migration(migrations.Migration):
             reverse_code=migrations.RunPython.noop,
         ),
         migrations.AddConstraint(
-            model_name='genevariant',
-            constraint=models.UniqueConstraint(fields=('chromosome', 'position', 'variation_type', 'allele_hash'), name='unique_genomic_variant'),
+            model_name="genevariant",
+            constraint=models.UniqueConstraint(
+                fields=("chromosome", "position", "variation_type", "allele_hash"),
+                name="unique_genomic_variant",
+            ),
         ),
     ]

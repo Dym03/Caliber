@@ -1,5 +1,9 @@
 import hashlib
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.contrib.auth.models import (
+    AbstractBaseUser,
+    BaseUserManager,
+    PermissionsMixin,
+)
 from django.db import models
 from django.utils import timezone
 
@@ -105,7 +109,6 @@ class GeneVariant(models.Model):
         ]
 
 
-
 class TranscriptAnnotation(models.Model):
     """
     Holds the 1-to-many relationship of transcripts to a variant.
@@ -122,9 +125,7 @@ class TranscriptAnnotation(models.Model):
     transcript_version = models.IntegerField(
         null=True, blank=True
     )  # e.g., 3 // The version might change over time, so we store it separately from the base transcript ID.
-    hgvs_c = models.TextField(
-        null=True, blank=True
-    )  # e.g., "c.432A>G"
+    hgvs_c = models.TextField(null=True, blank=True)  # e.g., "c.432A>G"
     hgvs_p = models.TextField(blank=True)
 
     exon = models.CharField(
@@ -158,7 +159,7 @@ class GeneticReport(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="genetic_reports"
+        related_name="genetic_reports",
     )
 
     report_name = models.CharField(max_length=120, blank=True)

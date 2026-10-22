@@ -1,25 +1,25 @@
 {% load static %}
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Caliber</title>
     <script>
-        window.__CALIBER_BASE_PATH__ = "{{ base_path|default:'' }}";
+      window.__CALIBER_BASE_PATH__ = "{{ base_path|default:'' }}";
     </script>
     {% if debug %}
-        <link rel="stylesheet" href="http://localhost:5173/src/app.css">
+    <link rel="stylesheet" href="http://localhost:5173/src/app.css" />
     {% else %}
-        <link rel="stylesheet" href="{{ css_url }}">
+    <link rel="stylesheet" href="{{ css_url }}" />
     {% endif %}
-</head>
-<body>
+  </head>
+  <body>
     <div id="svelte-app"></div>
     {% if debug %}
-        <script type="module" src="http://localhost:5173/src/main.ts"></script>
+    <script type="module" src="http://localhost:5173/src/main.ts"></script>
     {% else %}
-        <script src="{{ js_url }}" defer></script>
+    <script src="{{ js_url }}" defer></script>
     {% endif %}
-</body>
+  </body>
 </html>

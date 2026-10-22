@@ -1,88 +1,93 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount } from 'svelte';
 
-  import Topbar from './components/Topbar.svelte'
-  import SearchForm from './components/SearchForm.svelte'
-  import UploadPanel from './components/UploadPanel.svelte'
-  import ResultsTable from './components/ResultsTable.svelte'
-  import VariantClassifier from './components/VariantClassifier.svelte'
-  import { apiUrl } from './lib/api'
+  import Topbar from './components/Topbar.svelte';
+  import SearchForm from './components/SearchForm.svelte';
+  import UploadPanel from './components/UploadPanel.svelte';
+  import ResultsTable from './components/ResultsTable.svelte';
+  import VariantClassifier from './components/VariantClassifier.svelte';
+  import Dashboard from './components/Dashboard.svelte';
+  import { apiUrl } from './lib/api';
 
-  import type { Variant } from './types/variant'
-  import type { PaginationMeta } from './types/pagination'
+  import type { Variant } from './types/variant';
+  import type { PaginationMeta } from './types/pagination';
 
   type SearchResponse = {
-    results: Variant[]
-    meta: PaginationMeta
-  }
+    results: Variant[];
+    meta: PaginationMeta;
+  };
 
   type AuthUser = {
-    email: string
-    username : string
-  }
+    email: string;
+    username: string;
+    is_staff?: boolean;
+    is_superuser?: boolean;
+  };
 
   type AuthResponse = {
-    authenticated: boolean
-    user: AuthUser | null
-    error?: string
-  }
+    authenticated: boolean;
+    user: AuthUser | null;
+    error?: string;
+  };
 
-  type AuthMode = 'login' | 'register'
-  type SessionState = 'loading' | 'ready'
+  type AuthMode = 'login' | 'register';
+  type SessionState = 'loading' | 'ready';
 
-  let variantQuery = $state('')
-  let geneQuery = $state('')
-  let dbsnpQuery = $state('')
-  let isSearching = $state(false)
-  let errorMessage = $state('')
+  let variantQuery = $state('');
+  let geneQuery = $state('');
+  let dbsnpQuery = $state('');
+  let patientIdQuery = $state('');
+  let isSearching = $state(false);
+  let errorMessage = $state('');
 
-  let results = $state<Variant[]>([])
-  let meta = $state<PaginationMeta | null>(null)
-  let currentPage = $state(1)
-  let currentView = $state<'registry' | 'batch'>('registry')
+  let results = $state<Variant[]>([]);
+  let meta = $state<PaginationMeta | null>(null);
+  let currentPage = $state(1);
+  let currentView = $state<'registry' | 'batch' | 'dashboard'>('registry');
 
-  let sessionState = $state<SessionState>('loading')
-  let currentUser = $state<AuthUser | null>(null)
-  let authMode = $state<AuthMode>('login')
-  let authEmail = $state('')
-  let authUsername = $state('')
-  let authPassword = $state('')
-  let authPasswordConfirm = $state('')
-  let authMessage = $state('')
-  let authError = $state('')
-  let authSubmitting = $state(false)
+  let sessionState = $state<SessionState>('loading');
+  let currentUser = $state<AuthUser | null>(null);
+  let authMode = $state<AuthMode>('login');
+  let authEmail = $state('');
+  let authUsername = $state('');
+  let authPassword = $state('');
+  let authPasswordConfirm = $state('');
+  let authMessage = $state('');
+  let authError = $state('');
+  let authSubmitting = $state(false);
 
   const csrfToken = () => {
-    const value = `; ${document.cookie}`
-    const parts = value.split(`; csrftoken=`)
-    return parts.length === 2 ? parts.pop()?.split(';').shift() || '' : ''
-  }
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; csrftoken=`);
+    return parts.length === 2 ? parts.pop()?.split(';').shift() || '' : '';
+  };
 
   const clearSearch = () => {
-    variantQuery = ''
-    geneQuery = ''
-    dbsnpQuery = ''
-    errorMessage = ''
-    results = []
-    meta = null
-    currentPage = 1
-  }
+    variantQuery = '';
+    geneQuery = '';
+    dbsnpQuery = '';
+    patientIdQuery = '';
+    errorMessage = '';
+    results = [];
+    meta = null;
+    currentPage = 1;
+  };
 
   const setAuthenticatedUser = (user: AuthUser | null, message = '') => {
-    currentUser = user
-    authMessage = message
-    authError = ''
-    authPassword = ''
-    authPasswordConfirm = ''
+    currentUser = user;
+    authMessage = message;
+    authError = '';
+    authPassword = '';
+    authPasswordConfirm = '';
     if (!user) {
-      clearSearch()
+      clearSearch();
     }
-  }
+  };
 
   const handleUnauthorized = () => {
-    setAuthenticatedUser(null, 'Vaše relace vypršela. Přihlaste se znovu.')
-    sessionState = 'ready'
-  }
+    setAuthenticatedUser(null, 'Vaše relace vypršela. Přihlaste se znovu.');
+    sessionState = 'ready';
+  };
 
   const loadSession = async () => {
     try {
@@ -90,29 +95,29 @@
         headers: {
           Accept: 'application/json',
         },
-      })
+      });
 
       if (!response.ok) {
-        throw new Error('Unable to load session state.')
+        throw new Error('Unable to load session state.');
       }
 
-      const payload = (await response.json()) as AuthResponse
-      setAuthenticatedUser(payload.authenticated ? payload.user : null)
+      const payload = (await response.json()) as AuthResponse;
+      setAuthenticatedUser(payload.authenticated ? payload.user : null);
     } catch {
-      setAuthenticatedUser(null)
+      setAuthenticatedUser(null);
     } finally {
-      sessionState = 'ready'
+      sessionState = 'ready';
     }
-  }
+  };
 
   const submitAuth = async (event: SubmitEvent) => {
-    event.preventDefault()
-    authError = ''
-    authMessage = ''
-    authSubmitting = true
+    event.preventDefault();
+    authError = '';
+    authMessage = '';
+    authSubmitting = true;
 
     try {
-      const endpoint = apiUrl(authMode === 'login' ? '/auth/login/' : '/auth/register/')
+      const endpoint = apiUrl(authMode === 'login' ? '/auth/login/' : '/auth/register/');
       const payload =
         authMode === 'login'
           ? {
@@ -124,7 +129,7 @@
               username: authUsername.trim(),
               password: authPassword,
               password_confirm: authPasswordConfirm,
-            }
+            };
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -133,24 +138,24 @@
           'X-CSRFToken': csrfToken(),
         },
         body: JSON.stringify(payload),
-      })
+      });
 
-      const data = (await response.json().catch(() => ({}))) as AuthResponse
+      const data = (await response.json().catch(() => ({}))) as AuthResponse;
       if (!response.ok) {
-        throw new Error(data.error || 'Přihlášení se nezdařilo.')
+        throw new Error(data.error || 'Přihlášení se nezdařilo.');
       }
 
       setAuthenticatedUser(
         data.user,
         authMode === 'login' ? 'Přihlášení proběhlo úspěšně.' : 'Registrace proběhla úspěšně.',
-      )
-      currentView = 'registry'
+      );
+      currentView = 'registry';
     } catch (error) {
-      authError = error instanceof Error ? error.message : 'Přihlášení se nezdařilo.'
+      authError = error instanceof Error ? error.message : 'Přihlášení se nezdařilo.';
     } finally {
-      authSubmitting = false
+      authSubmitting = false;
     }
-  }
+  };
 
   const handleLogout = async () => {
     try {
@@ -159,67 +164,91 @@
         headers: {
           'X-CSRFToken': csrfToken(),
         },
-      })
+      });
     } finally {
-      setAuthenticatedUser(null, 'Byli jste odhlášeni.')
+      setAuthenticatedUser(null, 'Byli jste odhlášeni.');
     }
-  }
+  };
 
   const runSearch = async (page: number = 1) => {
     if (!currentUser) {
-      handleUnauthorized()
-      return
+      handleUnauthorized();
+      return;
     }
 
-    errorMessage = ''
-    currentPage = page
+    errorMessage = '';
+    currentPage = page;
 
     const params = new URLSearchParams({
       variant: variantQuery.trim(),
       gene: geneQuery.trim(),
       dbsnp: dbsnpQuery.trim(),
+      patient_id: patientIdQuery.trim(),
       page: String(page),
       per_page: '50',
-    })
+    });
 
-    if (![params.get('variant'), params.get('gene'), params.get('dbsnp')].some((value) => value && value.length > 0)) {
-      errorMessage = 'Vyplňte alespoň jedno vyhledávací pole.'
-      results = []
-      meta = null
-      return
+    if (
+      ![
+        params.get('variant'),
+        params.get('gene'),
+        params.get('dbsnp'),
+        params.get('patient_id'),
+      ].some((value) => value && value.length > 0)
+    ) {
+      errorMessage = 'Vyplňte alespoň jedno vyhledávací pole.';
+      results = [];
+      meta = null;
+      return;
     }
 
-    isSearching = true
+    isSearching = true;
     try {
-      const response = await fetch(apiUrl(`/api/search/?${params.toString()}`))
+      const response = await fetch(apiUrl(`/api/search/?${params.toString()}`));
       if (response.status === 401) {
-        handleUnauthorized()
-        return
+        handleUnauthorized();
+        return;
       }
       if (!response.ok) {
-        throw new Error('Search failed. Please try again.')
+        throw new Error('Search failed. Please try again.');
       }
-      const data = (await response.json()) as SearchResponse
-      results = data.results
-      meta = data.meta
+      const data = (await response.json()) as SearchResponse;
+      results = data.results;
+      meta = data.meta;
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Search failed.'
-      results = []
-      meta = null
+      errorMessage = error instanceof Error ? error.message : 'Search failed.';
+      results = [];
+      meta = null;
     } finally {
-      isSearching = false
+      isSearching = false;
     }
-  }
+  };
+
+  let successNotice = $state('');
+  let successTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const handleItemDeleted = (detail: {
+    type: 'variant' | 'report';
+    id: number;
+    message: string;
+  }) => {
+    successNotice = detail.message;
+    if (successTimer) clearTimeout(successTimer);
+    successTimer = setTimeout(() => {
+      successNotice = '';
+    }, 6000);
+    runSearch(currentPage);
+  };
 
   const handleFormSubmit = () => {
-    runSearch(1)
-  }
+    runSearch(1);
+  };
 
   const handlePageChange = (targetPage: number) => {
-    runSearch(targetPage)
-  }
+    runSearch(targetPage);
+  };
 
-  onMount(loadSession)
+  onMount(loadSession);
 </script>
 
 {#if sessionState === 'loading'}
@@ -236,6 +265,7 @@
       {currentView}
       onviewchange={(view) => (currentView = view)}
       userLabel={`${currentUser.username} · ${currentUser.email}`}
+      isStaff={currentUser.is_staff || false}
       onlogout={handleLogout}
     />
     {#if currentView === 'registry'}
@@ -244,6 +274,7 @@
           bind:variantQuery
           bind:geneQuery
           bind:dbsnpQuery
+          bind:patientIdQuery
           {isSearching}
           {errorMessage}
           onsubmit={handleFormSubmit}
@@ -252,105 +283,121 @@
         <UploadPanel onunauthorized={handleUnauthorized} />
       </section>
 
+      {#if successNotice}
+        <div class="success-banner">
+          <span>✓ {successNotice}</span>
+          <button type="button" class="close-banner" onclick={() => (successNotice = '')}>✕</button>
+        </div>
+      {/if}
+
       <section class="grid">
         <ResultsTable
           {results}
           {meta}
           onrefresh={() => runSearch(currentPage)}
           onpagechange={handlePageChange}
+          ondeleted={handleItemDeleted}
         />
       </section>
-    {:else}
+    {:else if currentView === 'batch'}
       <section class="batch-container">
         <VariantClassifier onunauthorized={handleUnauthorized} />
+      </section>
+    {:else if currentView === 'dashboard'}
+      <section class="dashboard-container">
+        <Dashboard onunauthorized={handleUnauthorized} />
       </section>
     {/if}
   </div>
 {:else}
   <div class="auth-shell">
-  <!-- Minimal Header -->
-  <header class="auth-header">
-    <h1>Caliber</h1>
-  </header>
+    <!-- Minimal Header -->
+    <header class="auth-header">
+      <h1>Caliber</h1>
+    </header>
 
-  <!-- Login / Register Card -->
-  <section class="card auth-card">
-    <div class="auth-switcher">
-      <button 
-        type="button" 
-        class="ghost auth-toggle {authMode === 'login' ? 'active' : ''}" 
-        onclick={() => (authMode = 'login')}
-      >
-        Přihlášení
-      </button>
-      <button 
-        type="button" 
-        class="ghost auth-toggle {authMode === 'register' ? 'active' : ''}" 
-        onclick={() => (authMode = 'register')}
-      >
-        Registrace
-      </button>
-    </div>
+    <!-- Login / Register Card -->
+    <section class="card auth-card">
+      <div class="auth-switcher">
+        <button
+          type="button"
+          class="ghost auth-toggle {authMode === 'login' ? 'active' : ''}"
+          onclick={() => (authMode = 'login')}
+        >
+          Přihlášení
+        </button>
+        <button
+          type="button"
+          class="ghost auth-toggle {authMode === 'register' ? 'active' : ''}"
+          onclick={() => (authMode = 'register')}
+        >
+          Registrace
+        </button>
+      </div>
 
-    <form class="auth-form" onsubmit={submitAuth}>
-      <label class="field auth-field">
-        <span>E-mail</span>
-        <input 
-          type="email" 
-          bind:value={authEmail} 
-          placeholder="lekar@nemocnice.cz" 
-          autocomplete="email" 
-          required 
-        />
-      </label>
-
-      {#if authMode === 'register'}
+      <form class="auth-form" onsubmit={submitAuth}>
         <label class="field auth-field">
-          <span>Přezdívka</span>
-          <input 
-            type="text" 
-            bind:value={authUsername} 
-            placeholder="neurologie-tym" 
-            autocomplete="off" 
-            required 
+          <span>E-mail</span>
+          <input
+            type="email"
+            bind:value={authEmail}
+            placeholder="lekar@nemocnice.cz"
+            autocomplete="email"
+            required
           />
         </label>
-      {/if}
 
-      <label class="field auth-field">
-        <span>Heslo</span>
-        <input 
-          type="password" 
-          bind:value={authPassword} 
-          autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} 
-          required 
-        />
-      </label>
+        {#if authMode === 'register'}
+          <label class="field auth-field">
+            <span>Přezdívka</span>
+            <input
+              type="text"
+              bind:value={authUsername}
+              placeholder="neurologie-tym"
+              autocomplete="off"
+              required
+            />
+          </label>
+        {/if}
 
-      {#if authMode === 'register'}
         <label class="field auth-field">
-          <span>Potvrzení hesla</span>
-          <input 
-            type="password" 
-            bind:value={authPasswordConfirm} 
-            autocomplete="new-password" 
-            required 
+          <span>Heslo</span>
+          <input
+            type="password"
+            bind:value={authPassword}
+            autocomplete={authMode === 'login' ? 'current-password' : 'new-password'}
+            required
           />
         </label>
+
+        {#if authMode === 'register'}
+          <label class="field auth-field">
+            <span>Potvrzení hesla</span>
+            <input
+              type="password"
+              bind:value={authPasswordConfirm}
+              autocomplete="new-password"
+              required
+            />
+          </label>
+        {/if}
+
+        <button type="submit" class="ghost auth-submit" disabled={authSubmitting}>
+          {authSubmitting
+            ? 'Zpracovávám...'
+            : authMode === 'login'
+              ? 'Přihlásit se'
+              : 'Vytvořit účet'}
+        </button>
+      </form>
+
+      {#if authMessage}
+        <p class="success">{authMessage}</p>
       {/if}
 
-      <button type="submit" class="ghost auth-submit" disabled={authSubmitting}>
-        {authSubmitting ? 'Zpracovávám...' : authMode === 'login' ? 'Přihlásit se' : 'Vytvořit účet'}
-      </button>
-    </form>
-
-    {#if authMessage}
-      <p class="success">{authMessage}</p>
-    {/if}
-
-    {#if authError}
-      <p class="error">{authError}</p>
-    {/if}
-  </section>
-</div>
+      {#if authError}
+        <p class="error">{authError}</p>
+      {/if}
+    </section>
+  </div>
 {/if}

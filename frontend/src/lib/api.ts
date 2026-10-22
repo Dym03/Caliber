@@ -55,8 +55,7 @@ export async function parseResponse<T = any>(response: Response): Promise<T> {
   if (isJson) {
     try {
       const errorData = await response.json();
-      const message =
-        extractErrorMessage(errorData) || `Chyba požadavku (HTTP ${response.status})`;
+      const message = extractErrorMessage(errorData) || `Chyba požadavku (HTTP ${response.status})`;
       throw new ApiError(message, response.status, errorData);
     } catch (err) {
       if (err instanceof ApiError) throw err;
@@ -71,19 +70,19 @@ export async function parseResponse<T = any>(response: Response): Promise<T> {
   if (response.status === 413) {
     throw new ApiError(
       `Soubor je příliš velký pro nahrání (HTTP 413 ${serverMsg || 'Request Entity Too Large'}).`,
-      response.status
+      response.status,
     );
   }
   if (response.status === 502 || response.status === 504) {
     throw new ApiError(
       `Server neodpovídá včas (HTTP ${response.status} ${serverMsg || 'Gateway Timeout'}). Zpracování trvalo příliš dlouho.`,
-      response.status
+      response.status,
     );
   }
   if (response.status === 403) {
     throw new ApiError(
       'Přístup odepřen nebo vypršela platnost relace (HTTP 403). Obnovte prosím stránku.',
-      response.status
+      response.status,
     );
   }
 
@@ -91,7 +90,7 @@ export async function parseResponse<T = any>(response: Response): Promise<T> {
     serverMsg
       ? `Chyba serveru (${response.status}): ${serverMsg}`
       : `Neočekávaná odpověď serveru (HTTP ${response.status}).`,
-    response.status
+    response.status,
   );
 }
 

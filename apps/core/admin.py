@@ -16,7 +16,9 @@ from .models import (
 
 class UserCreationForm(forms.ModelForm):
     password1 = forms.CharField(label="Password", widget=forms.PasswordInput)
-    password2 = forms.CharField(label="Password confirmation", widget=forms.PasswordInput)
+    password2 = forms.CharField(
+        label="Password confirmation", widget=forms.PasswordInput
+    )
 
     class Meta:
         model = User
@@ -42,7 +44,14 @@ class UserChangeForm(forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ("email", "username", "password", "is_active", "is_staff", "is_superuser")
+        fields = (
+            "email",
+            "username",
+            "password",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+        )
 
 
 @admin.register(User)
@@ -83,9 +92,14 @@ class UserAdmin(BaseUserAdmin):
         ),
     )
 
+
 admin.site.register(Patient)
 admin.site.register(Gene)
 admin.site.register(GeneVariant)
 admin.site.register(TranscriptAnnotation)
 admin.site.register(GeneticReport)
 admin.site.register(PatientVariant)
+
+admin.site.site_header = "Caliber Administrace"
+admin.site.site_title = "Caliber Admin"
+admin.site.index_title = "Správa registru"
