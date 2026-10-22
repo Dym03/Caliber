@@ -21,6 +21,7 @@ from apps.core.models import (
 
 logger = logging.getLogger(__name__)
 
+
 class ImportCaches:
     """
     In-memory caches scoped to an import run to prevent redundant DB lookups
@@ -54,6 +55,7 @@ def clean_str(value: object, null_if_empty: bool = False) -> str | None:
         value = int(value)
     cleaned = str(value).strip()
     return cleaned
+
 
 def parse_chrom(chrom: str | None) -> str | None:
     if chrom is None:
@@ -89,17 +91,19 @@ def clean_int(value: object) -> int | None:
     except (ValueError, TypeError, OverflowError):
         return None
 
+
 def parse_patient_id(value: object) -> str | None:
     if value is None:
         return None
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     cleaned = str(value).strip()
-    if '-' in cleaned:
-        cleaned = cleaned.split('-')[0].strip()
-    if cleaned.endswith('.0') and cleaned[:-2].isdigit():
+    if "-" in cleaned:
+        cleaned = cleaned.split("-")[0].strip()
+    if cleaned.endswith(".0") and cleaned[:-2].isdigit():
         cleaned = cleaned[:-2]
     return cleaned
+
 
 def normalize_var_type(var_type: str) -> str:
     if var_type is None:
@@ -171,12 +175,11 @@ def parse_excel_genes(excel_string) -> list:
     return gene_symbols
 
 
-
 def parse_row(row, patient_id: str | None) -> dict | None:
     if not row:
         return None
     cleaned_data = {}
-    
+
     cleaned_data["patient_id"] = clean_str(row.get("Name")) or patient_id
     cleaned_data["patient_id"] = parse_patient_id(cleaned_data["patient_id"])
     if not cleaned_data["patient_id"] or not cleaned_data["patient_id"].isdigit():
@@ -331,7 +334,10 @@ def persist_row(
             reported_hgvs_c=data["hgvs_coding"],
         )
     except Exception as e:
-        logger.error(f"Skipping Variant {gene_variant.id} already linked to report {report.id}. Error: {e}")
+        logger.error(
+            f"Skipping Variant {gene_variant.id} already linked to report {report.id}. Error: {e}"
+        )
+
 
 def parse_df(
     df: pl.DataFrame,
@@ -353,7 +359,6 @@ def parse_df(
     finally:
         if owns_cache:
             caches.clear()
-
 
 
 class Command(BaseCommand):

@@ -2,7 +2,12 @@ from datetime import datetime, timezone as dt_timezone
 import logging
 from django.db import transaction
 from apps.clinvar.models import ClinVarGeneVariant
-from apps.core.models import Gene, GeneVariant, TranscriptAnnotation, compute_allele_hash
+from apps.core.models import (
+    Gene,
+    GeneVariant,
+    TranscriptAnnotation,
+    compute_allele_hash,
+)
 
 logger = logging.getLogger(__name__)
 

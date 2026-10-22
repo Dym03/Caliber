@@ -4,40 +4,41 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('core', '0004_geneticreport_created_by'),
+        ("core", "0004_geneticreport_created_by"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='genevariant',
-            name='alt_allele',
+            model_name="genevariant",
+            name="alt_allele",
             field=models.TextField(),
         ),
         migrations.AlterField(
-            model_name='genevariant',
-            name='ref_allele',
+            model_name="genevariant",
+            name="ref_allele",
             field=models.TextField(),
         ),
         migrations.AlterField(
-            model_name='transcriptannotation',
-            name='exon',
+            model_name="transcriptannotation",
+            name="exon",
             field=models.CharField(blank=True, max_length=64),
         ),
         migrations.AlterField(
-            model_name='transcriptannotation',
-            name='hgvs_c',
-            field=models.CharField(blank=True, db_index=True, max_length=512, null=True),
+            model_name="transcriptannotation",
+            name="hgvs_c",
+            field=models.CharField(
+                blank=True, db_index=True, max_length=512, null=True
+            ),
         ),
         migrations.AlterField(
-            model_name='transcriptannotation',
-            name='hgvs_p',
+            model_name="transcriptannotation",
+            name="hgvs_p",
             field=models.CharField(blank=True, max_length=512),
         ),
         migrations.AlterField(
-            model_name='transcriptannotation',
-            name='transcript_base',
+            model_name="transcriptannotation",
+            name="transcript_base",
             field=models.CharField(blank=True, db_index=True, max_length=64, null=True),
         ),
     ]

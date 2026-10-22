@@ -39,12 +39,13 @@ def index(request):
     )
 
 
-
 @require_GET
 def auth_status(request):
     get_token(request)
     if request.user.is_authenticated:
-        return JsonResponse({"authenticated": True, "user": serialize_user(request.user)})
+        return JsonResponse(
+            {"authenticated": True, "user": serialize_user(request.user)}
+        )
 
     return JsonResponse({"authenticated": False, "user": None})
 
@@ -84,12 +85,16 @@ def register_view(request):
         return JsonResponse({"error": "Passwords do not match."}, status=400)
 
     if User.objects.filter(email=email).exists():
-        return JsonResponse({"error": "An account with that email already exists."}, status=400)
+        return JsonResponse(
+            {"error": "An account with that email already exists."}, status=400
+        )
 
     user = User.objects.create_user(email=email, username=username, password=password)
     login(request, user)
     get_token(request)
-    return JsonResponse({"authenticated": True, "user": serialize_user(user)}, status=201)
+    return JsonResponse(
+        {"authenticated": True, "user": serialize_user(user)}, status=201
+    )
 
 
 @require_POST

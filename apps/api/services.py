@@ -12,7 +12,14 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.db.models import Q, Subquery, OuterRef
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
-from apps.core.models import Gene, GeneVariant, PatientVariant, User, GeneticReport, Patient
+from apps.core.models import (
+    Gene,
+    GeneVariant,
+    PatientVariant,
+    User,
+    GeneticReport,
+    Patient,
+)
 from apps.core.enums import ClassificationEnum
 from apps.core.management.commands.init_db import (
     parse_excel_genes,
@@ -59,13 +66,15 @@ def query_variants(
             | Q(reported_hgvs_c__iexact=variant)
         )
     if patient_id:
-        patient_filters &= (
-            Q(report__patient__name__iexact=patient_id)
-        )
+        patient_filters &= Q(report__patient__name__iexact=patient_id)
 
     patient_queryset = (
         PatientVariant.objects.select_related(
-            "variant", "variant__clinvar_entry", "report", "report__patient", "report__created_by"
+            "variant",
+            "variant__clinvar_entry",
+            "report",
+            "report__patient",
+            "report__created_by",
         )
         .prefetch_related("variant__annotations", "variant__genes")
         .filter(patient_filters)
@@ -137,7 +146,7 @@ def query_variants(
                 "last_updated": clinvar_entry.last_updated.isoformat()
                 if clinvar_entry.last_updated
                 else None,
-            }   
+            }
 
         if not is_fallback:
             creator = item.report.created_by
@@ -147,7 +156,8 @@ def query_variants(
                     "source": "clinic",
                     "patient_variant_id": item.id,
                     "report_id": item.report.id,
-                    "report_name": item.report.report_name or f"Report #{item.report.id}",
+                    "report_name": item.report.report_name
+                    or f"Report #{item.report.id}",
                     "report_variants_count": item.report.variants.count(),
                     "patient_id": item.report.patient.name,
                     "created_by": created_by_user,
@@ -220,13 +230,15 @@ def process_uploaded_variants_file(uploaded_file, user: User | None = None) -> d
         logger.info(f"Processing uploaded file '{name}' with sheets: {sheet_names}")
         rows_processed = 0
         for sheet in sheet_names:
-            if re.match(r"^\d+-\d+.*$", sheet): # [1-9]*-[1-9]*... pattern
+            if re.match(r"^\d+-\d+.*$", sheet):  # [1-9]*-[1-9]*... pattern
                 df = excel_reader.load_sheet(sheet).to_polars()
                 patient_id = parse_patient_id(sheet)
                 with transaction.atomic():
                     parse_df(df, name, user=user, patient_id=patient_id)
                     rows_processed += df.height
-            elif len(sheet_names) == 1: # If there's only one sheet, process it even if it doesn't match the pattern
+            elif (
+                len(sheet_names) == 1
+            ):  # If there's only one sheet, process it even if it doesn't match the pattern
                 df = excel_reader.load_sheet(sheet).to_polars()
                 with transaction.atomic():
                     parse_df(df, name, user=user)
@@ -256,6 +268,7 @@ def format_classification(clinic_val, clinvar_val) -> tuple[str, str]:
         return cv_str, "Pouze v ClinVar katalogu"
     return "—", "Nenalezeno žádné hodnocení"
 
+
 def resolve_matches(matches: list[dict], format_classification_fn) -> dict:
     """Sloučí více nalezených variant se stejným klíčem dohromady.
 
@@ -283,19 +296,16 @@ def resolve_matches(matches: list[dict], format_classification_fn) -> dict:
 
     best_clinic = clinic_scores[0] if clinic_scores else None
     best_clinvar = clinvar_scores[0] if clinvar_scores else None
-    merged_clinvar_id = (
-        ", ".join(dict.fromkeys(clinvar_ids)) if clinvar_ids else "—"
-    )
+    merged_clinvar_id = ", ".join(dict.fromkeys(clinvar_ids)) if clinvar_ids else "—"
 
-    final_score, match_status = format_classification_fn(
-        best_clinic, best_clinvar
-    )
+    final_score, match_status = format_classification_fn(best_clinic, best_clinvar)
 
     return {
         "Zhodnoceni_Patogenity": final_score or "Neklasifikováno",
         "ClinVar_ID": merged_clinvar_id,
         "Status_Kontroly": match_status,
     }
+
 
 def get_variant_hashes_from_db(
     unique_dbsnps: list[str], unique_variants: list[str]
@@ -369,8 +379,7 @@ def get_variant_hashes_from_db(
                     for g_sym in variant_genes:
                         pair_key = (g_sym, c_clean)
                         if not any(
-                            item["variant_id"] == gv.pk
-                            for item in hgvs_map[pair_key]
+                            item["variant_id"] == gv.pk for item in hgvs_map[pair_key]
                         ):
                             hgvs_map[pair_key].append(variant_data)
 
@@ -392,9 +401,7 @@ def annotate_excel_workbook(
 
     def annotate_row(gene_val, variant_val, dbsnp_val) -> dict:
         g_clean = parse_excel_genes(gene_val) if gene_val else ""
-        d_clean = (
-            parse_excel_dbsnp(str(dbsnp_val)) if dbsnp_val is not None else ""
-        )
+        d_clean = parse_excel_dbsnp(str(dbsnp_val)) if dbsnp_val is not None else ""
 
         hgvs = ""
         if variant_val is not None:
@@ -431,7 +438,7 @@ def annotate_excel_workbook(
         return resolve_matches(collected_matches, format_classification)
 
     for sheet in sheet_names:
-        if re.match(r"^\d+-\d+.*$", sheet): # [1-9]*-[1-9]*... pattern
+        if re.match(r"^\d+-\d+.*$", sheet):  # [1-9]*-[1-9]*... pattern
             df = excel_reader.load_sheet(sheet).to_polars()
             orig_headers = df.columns
             logger.debug(f"Processing sheet '{sheet}' with headers: {orig_headers}")
@@ -447,7 +454,9 @@ def annotate_excel_workbook(
                 elif low in ["vep dbsnp id", "dbsnp"]:
                     dbsnp_col = col
 
-            if any([gene_col, variant_col, dbsnp_col]): # If none of the required columns are found, keep the sheet unmodified
+            if any(
+                [gene_col, variant_col, dbsnp_col]
+            ):  # If none of the required columns are found, keep the sheet unmodified
                 annotations = [
                     annotate_row(
                         row.get(gene_col) if gene_col else None,
@@ -478,8 +487,7 @@ def annotate_excel_workbook(
     output = io.BytesIO()
     with xlsxwriter.Workbook(output, {"in_memory": True}) as workbook:
         for sheet_title, sheet_df in annotated_sheets.items():
-
-            safe_title = sheet_title[:31] # Excel sheet title limit
+            safe_title = sheet_title[:31]  # Excel sheet title limit
 
             sheet_df.write_excel(
                 workbook=workbook,
@@ -518,7 +526,9 @@ def get_dashboard_statistics() -> dict:
         PatientVariant.objects.values("variant_id").distinct().count()
     )
     pathogenic_patients = (
-        PatientVariant.objects.filter(category__gte=4.0, category__lte=5.0) # Categories 4 and 5 are considered pathogenic
+        PatientVariant.objects.filter(
+            category__gte=4.0, category__lte=5.0
+        )  # Categories 4 and 5 are considered pathogenic
         .values("report__patient_id")
         .distinct()
         .count()
@@ -544,9 +554,9 @@ def get_dashboard_statistics() -> dict:
     )
 
     category_meta = {
-        8.0 : {"label": "Somatická varianta", "class": "c8"},
-        7.0 : {"label": "Farmakogenetický rizikový faktor", "class": "c7"},
-        6.0 : {"label": "Hypomorfní varianta", "class": "c6"},
+        8.0: {"label": "Somatická varianta", "class": "c8"},
+        7.0: {"label": "Farmakogenetický rizikový faktor", "class": "c7"},
+        6.0: {"label": "Hypomorfní varianta", "class": "c6"},
         5.0: {"label": "Třída 5 – Patogenní", "class": "c5"},
         4.5: {
             "label": "Třída 4-5 – Patogenní / Pravděpodobně patogenní",
@@ -584,9 +594,7 @@ def get_dashboard_statistics() -> dict:
         meta = category_meta.get(
             cat_val,
             {
-                "label": f"Kategorie {cat_val}"
-                if cat_val is not None
-                else "Neuvedeno",
+                "label": f"Kategorie {cat_val}" if cat_val is not None else "Neuvedeno",
                 "class": "c0",
             },
         )
@@ -628,9 +636,7 @@ def get_dashboard_statistics() -> dict:
             if total_patient_variants > 0
             else 0.0
         )
-        zygosities_breakdown.append(
-            {"label": label, "count": count, "percentage": pct}
-        )
+        zygosities_breakdown.append({"label": label, "count": count, "percentage": pct})
     zygosities_breakdown.sort(key=lambda x: x["count"], reverse=True)
 
     # 3. Top mutated genes
@@ -648,11 +654,7 @@ def get_dashboard_statistics() -> dict:
         symbol = g["variant__genes__symbol"]
         p_count = g["patient_count"]
         v_count = g["variant_count"]
-        pct = (
-            round((p_count / total_patients) * 100, 1)
-            if total_patients > 0
-            else 0.0
-        )
+        pct = round((p_count / total_patients) * 100, 1) if total_patients > 0 else 0.0
         top_genes.append(
             {
                 "symbol": symbol,
@@ -844,5 +846,3 @@ def delete_genetic_report(report_id: int, user: User) -> dict:
         "deleted_variants_count": variants_count,
         "patient_deleted": patient_deleted,
     }
-
-

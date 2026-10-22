@@ -115,6 +115,7 @@ flowchart TD
 ### Architectural Layers
 
 #### 1. Presentation Layer (`frontend/`)
+
 - **Technology**: **Svelte 5**, **TypeScript**, and **Vite** with **Tailwind/Custom CSS**.
 - **Key Modules & View Switching**:
   - `Topbar.svelte`: Provides top-level view navigation between **Variant Registry** and **Batch Classifier** modes, manages current user session state, and triggers the login/registration modal.
@@ -126,6 +127,7 @@ flowchart TD
 - **Production Delivery**: In production, Vite compiles the Svelte SPA into optimized static artifacts (`main.js` and `main.css`). These are served directly through Django and **WhiteNoise** with gzip/brotli compression and persistent HTTP caching headers.
 
 #### 2. API & Controller Layer (`apps/api/`, `apps/core/`)
+
 - **Technology**: **Django 6.0** (Python 3.12).
 - **Core Endpoints**:
   - `GET /api/search/`: Executes the two-tier variant discovery query with pagination metadata.
@@ -135,6 +137,7 @@ flowchart TD
   - `GET /`: Serves the bootstrapping HTML container (`core/index.html`) that mounts the Svelte SPA.
 
 #### 3. Ingestion & Service Layer (`apps/api/services.py`, `apps/core/management/`, `apps/clinvar/`)
+
 - **Decoupled Business Logic**: Heavy database querying, DataFrame manipulation, and Excel generation are extracted into `apps/api/services.py`:
   - `query_variants()`: Clean two-tier query resolution and pagination.
   - `process_uploaded_variants_file()`: Safe temporary file handling and Polars DataFrame execution.
@@ -144,6 +147,7 @@ flowchart TD
 - **ClinVar Synchronization**: Streams multi-gigabyte NCBI ClinVar release XML files row-by-row, resolving genes and upserting variants in 10,000-item database batches.
 
 #### 4. Persistence Layer (`apps/core/models.py`, `apps/clinvar/models.py`)
+
 - **Technology**: **PostgreSQL 16**.
 - **User Accountability**: Custom `User` model (`AbstractBaseUser`) with email authentication. Each `GeneticReport` tracks the uploading user via `created_by` ForeignKey.
 - **Integrity**: Enforces genomic coordinate uniqueness at the database level and uses composite indexes across frequently queried identifiers (`dbsnp`, `hgvs_c`, `chromosome + position`).
@@ -233,6 +237,7 @@ erDiagram
 ```
 
 #### Key Relational Design Principles:
+
 1. **User Accountability**: `GeneticReport.created_by` attributes every uploaded dataset to a specific user, enabling audits of clinical data entries.
 2. **Physical Coordinate Identity**: `GeneVariant` records are uniquely keyed by `(chromosome, position, variation_type, ref_allele, alt_allele)`. This prevents duplicate entries regardless of how many patients carry the mutation.
 3. **Decoupled Transcript Annotations**: A single genomic variant can map to multiple transcripts (`TranscriptAnnotation`), preserving splice variant annotations independently of patient data.
@@ -346,13 +351,13 @@ Uploaded Spreadsheet (.xlsx)
 
 Caliber unifies disparate classification strings from internal clinical spreadsheets and external ClinVar records into a standardized 5-tier scoring model based on ACMG (American College of Medical Genetics) guidelines:
 
-| Tier | Classification Enum | Score | Clinical Meaning |
-|:----:|:-------------------|:-----:|:-----------------|
-| **5** | `PATHOGENIC` | `5.0` | Disease-causing variant |
-| **4** | `LIKELY_PATHOGENIC` | `4.0` | High probability (>90%) of being disease-causing |
-| **3** | `UNCERTAIN_SIGNIFICANCE` | `3.0` | VUS: Insufficient or conflicting evidence |
-| **2** | `LIKELY_BENIGN` | `2.0` | High probability (>90%) of not causing disease |
-| **1** | `BENIGN` | `1.0` | Harmless genetic variation |
+| Tier  | Classification Enum      | Score | Clinical Meaning                                 |
+| :---: | :----------------------- | :---: | :----------------------------------------------- |
+| **5** | `PATHOGENIC`             | `5.0` | Disease-causing variant                          |
+| **4** | `LIKELY_PATHOGENIC`      | `4.0` | High probability (>90%) of being disease-causing |
+| **3** | `UNCERTAIN_SIGNIFICANCE` | `3.0` | VUS: Insufficient or conflicting evidence        |
+| **2** | `LIKELY_BENIGN`          | `2.0` | High probability (>90%) of not causing disease   |
+| **1** | `BENIGN`                 | `1.0` | Harmless genetic variation                       |
 
 Compound strings (such as `Pathogenic/Likely pathogenic` or `Likely benign/Uncertain significance`) are parsed and assigned intermediate numerical scores (`4.5`, `2.5`).
 
@@ -424,6 +429,7 @@ pnpm run dev   # Starts Vite server on http://localhost:5173
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
 ```
+
 Visit `http://localhost:8000` to interact with the application.
 
 ---
@@ -435,18 +441,21 @@ Caliber is fully containerized using a multi-stage Dockerfile (Node 22 for front
 ### Deployment Steps
 
 1. **Clone repository onto your server**:
+
    ```bash
    git clone <your-repo-url> /opt/caliber
    cd /opt/caliber
    ```
 
 2. **Configure production environment**:
+
    ```bash
    cp .env.example .env
    nano .env  # Configure SECRET_KEY, ALLOWED_HOSTS, POSTGRES_PASSWORD, etc.
    ```
 
 3. **Start the containers with Docker Compose**:
+
    ```bash
    docker compose up -d --build
    ```

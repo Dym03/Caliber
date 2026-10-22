@@ -22,6 +22,7 @@ from apps.core.management.commands.init_db import parse_excel_hgvs
 
 logger = logging.getLogger(__name__)
 
+
 # TODO: Imporove FE part so it displays all the info about the variant in the detail.
 @login_required_json
 def search_variants(request):
@@ -101,7 +102,8 @@ def upload_variants_file(request):
             {"error": f"Chyba při zpracování souborů: {str(e)}"}, status=500
         )
 
-#TODO Sheet name have to be either default or we have to get it from the user. Currently it is hardcoded to default.
+
+# TODO Sheet name have to be either default or we have to get it from the user. Currently it is hardcoded to default.
 @require_POST
 @login_required_json
 def classify_variants(request):
@@ -115,10 +117,7 @@ def classify_variants(request):
     if not uploaded_file:
         return JsonResponse({"error": "No file provided."}, status=400)
 
-    allowed_extensions = {
-        ".xlsx",
-        ".xls"
-    }
+    allowed_extensions = {".xlsx", ".xls"}
     name_lower = uploaded_file.name.lower()
     if not any(name_lower.endswith(ext) for ext in allowed_extensions):
         return JsonResponse(
@@ -135,7 +134,7 @@ def classify_variants(request):
 
         for orig_col in df.columns:
             low = orig_col.lower()
-            if low in ["nucleotide", 'hgvsc']:
+            if low in ["nucleotide", "hgvsc"]:
                 hgsv_c_col = orig_col
             elif low in ["vep dbsnp id", "dbsnp"]:
                 dbsnp_col = orig_col
@@ -244,5 +243,3 @@ def delete_genetic_report_view(request, report_id: int):
     except Exception as e:
         logger.exception("Chyba při mazání reportu.")
         return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
-
-

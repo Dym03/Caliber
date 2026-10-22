@@ -1,36 +1,36 @@
 <script lang="ts">
-    import { apiUrl, getCookie, parseResponse } from "../lib/api";
+  import { apiUrl, getCookie, parseResponse } from '../lib/api';
 
   interface Props {
-    onunauthorized?: () => void
+    onunauthorized?: () => void;
   }
 
   interface UploadPayload {
-    filename?: string
-    filenames?: string[]
+    filename?: string;
+    filenames?: string[];
   }
 
-  let { onunauthorized }: Props = $props()
+  let { onunauthorized }: Props = $props();
 
-  let uploadFiles = $state<File[]>([])
-  let uploadMessage = $state('')
-  let uploadError = $state('')
-  let isUploading = $state(false)
-  let isDragActive = $state(false)
-  let fileInputRef = $state<HTMLInputElement | null>(null)
+  let uploadFiles = $state<File[]>([]);
+  let uploadMessage = $state('');
+  let uploadError = $state('');
+  let isUploading = $state(false);
+  let isDragActive = $state(false);
+  let fileInputRef = $state<HTMLInputElement | null>(null);
 
   const handleUpload = async () => {
-    uploadMessage = ''
-    uploadError = ''
+    uploadMessage = '';
+    uploadError = '';
     if (uploadFiles.length === 0) {
-      uploadError = 'Vyberte soubor pro nahrání.'
-      return
+      uploadError = 'Vyberte soubor pro nahrání.';
+      return;
     }
 
-    const formData = new FormData()
-    uploadFiles.forEach((file) => formData.append('file', file))
+    const formData = new FormData();
+    uploadFiles.forEach((file) => formData.append('file', file));
 
-    isUploading = true
+    isUploading = true;
     try {
       const response = await fetch(apiUrl('/api/upload/'), {
         method: 'POST',
@@ -38,114 +38,112 @@
           'X-CSRFToken': getCookie('csrftoken'),
         },
         body: formData,
-      })
+      });
 
       if (response.status === 401) {
-          onunauthorized?.()
-          return
+        onunauthorized?.();
+        return;
       }
 
-      const payload = await parseResponse<UploadPayload>(response)
+      const payload = await parseResponse<UploadPayload>(response);
 
       if (payload.filenames && payload.filenames.length > 0) {
-        uploadMessage = `Nahráno souborů: ${payload.filenames.length}.`
+        uploadMessage = `Nahráno souborů: ${payload.filenames.length}.`;
       } else if (payload.filename) {
-        uploadMessage = `Soubor ${payload.filename} byl nahrán.`
+        uploadMessage = `Soubor ${payload.filename} byl nahrán.`;
       } else {
-        uploadMessage = 'Soubor(y) byly nahrány.'
+        uploadMessage = 'Soubor(y) byly nahrány.';
       }
-      
-      uploadFiles = []
+
+      uploadFiles = [];
       if (fileInputRef) {
-        fileInputRef.value = ''
+        fileInputRef.value = '';
       }
     } catch (error) {
-      uploadError = error instanceof Error ? error.message : 'Upload failed.'
+      uploadError = error instanceof Error ? error.message : 'Upload failed.';
     } finally {
-      isUploading = false
+      isUploading = false;
     }
-  }
+  };
 
   const appendFiles = (files: File[]) => {
     if (files.length === 0) {
-      return uploadFiles
+      return uploadFiles;
     }
-    uploadMessage = ''
-    uploadError = ''
-    const seen = new Set(uploadFiles.map((file) => `${file.name}-${file.size}-${file.lastModified}`))
-    const merged = [...uploadFiles]
+    uploadMessage = '';
+    uploadError = '';
+    const seen = new Set(
+      uploadFiles.map((file) => `${file.name}-${file.size}-${file.lastModified}`),
+    );
+    const merged = [...uploadFiles];
     files.forEach((file) => {
-      const key = `${file.name}-${file.size}-${file.lastModified}`
+      const key = `${file.name}-${file.size}-${file.lastModified}`;
       if (!seen.has(key)) {
-        seen.add(key)
-        merged.push(file)
+        seen.add(key);
+        merged.push(file);
       }
-    })
-    uploadFiles = merged
-    return merged
-  }
+    });
+    uploadFiles = merged;
+    return merged;
+  };
 
   const clearSelectedFile = () => {
-    uploadMessage = ''
-    uploadError = ''
-    uploadFiles = []
+    uploadMessage = '';
+    uploadError = '';
+    uploadFiles = [];
     if (fileInputRef) {
-      fileInputRef.value = ''
+      fileInputRef.value = '';
     }
-  }
+  };
 
   const removeFile = (index: number) => {
-    uploadFiles = uploadFiles.filter((_, itemIndex) => itemIndex !== index)
+    uploadFiles = uploadFiles.filter((_, itemIndex) => itemIndex !== index);
     if (uploadFiles.length === 0) {
-      clearSelectedFile()
+      clearSelectedFile();
     }
-  }
+  };
 
   const handleFileChange = (event: Event) => {
-    const target = event.currentTarget as HTMLInputElement
-    appendFiles(target.files ? Array.from(target.files) : [])
-  }
+    const target = event.currentTarget as HTMLInputElement;
+    appendFiles(target.files ? Array.from(target.files) : []);
+  };
 
   const handleDrop = (event: DragEvent) => {
-    event.preventDefault()
-    isDragActive = false
-    const droppedFiles = event.dataTransfer?.files
-      ? Array.from(event.dataTransfer.files)
-      : []
-    const mergedFiles = appendFiles(droppedFiles)
+    event.preventDefault();
+    isDragActive = false;
+    const droppedFiles = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
+    const mergedFiles = appendFiles(droppedFiles);
     if (fileInputRef) {
-      const dataTransfer = new DataTransfer()
-      mergedFiles.forEach((file) => dataTransfer.items.add(file))
-      fileInputRef.files = dataTransfer.files
+      const dataTransfer = new DataTransfer();
+      mergedFiles.forEach((file) => dataTransfer.items.add(file));
+      fileInputRef.files = dataTransfer.files;
     }
-  }
+  };
 
   const handleDragOver = (event: DragEvent) => {
-    event.preventDefault()
-    isDragActive = true
-  }
+    event.preventDefault();
+    isDragActive = true;
+  };
 
   const handleDragLeave = () => {
-    isDragActive = false
-  }
+    isDragActive = false;
+  };
 
   const openFileDialog = () => {
-    fileInputRef?.click()
-  }
+    fileInputRef?.click();
+  };
 
   const handleDropzoneKeydown = (event: KeyboardEvent) => {
     if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      openFileDialog()
+      event.preventDefault();
+      openFileDialog();
     }
-  }
+  };
 </script>
 
 <div class="card hero">
   <h2>Nahrání Dat</h2>
-  <p>
-    Nahrajte Excel z vaší analýzy. Soubor bude zpracován a nahrán do databáze.
-  </p>
+  <p>Nahrajte Excel z vaší analýzy. Soubor bude zpracován a nahrán do databáze.</p>
   <div class="upload-panel">
     <div
       class="dropzone {isDragActive ? 'drag-active' : ''}"
@@ -172,9 +170,7 @@
       </div>
       <div class="file-meta">
         <span class="file-name">
-          {uploadFiles.length > 0
-            ? `Vybráno souborů: ${uploadFiles.length}`
-            : 'Soubor nevybrán'}
+          {uploadFiles.length > 0 ? `Vybráno souborů: ${uploadFiles.length}` : 'Soubor nevybrán'}
         </span>
         {#if uploadFiles.length > 0}
           <button
@@ -182,8 +178,8 @@
             class="clear-file"
             aria-label="Odebrat všechny soubory"
             onclick={(e) => {
-              e.stopPropagation()
-              clearSelectedFile()
+              e.stopPropagation();
+              clearSelectedFile();
             }}
           >
             Odebrat vše
@@ -200,8 +196,8 @@
                 class="remove-file"
                 aria-label={`Odebrat ${file.name}`}
                 onclick={(e) => {
-                  e.stopPropagation()
-                  removeFile(index)
+                  e.stopPropagation();
+                  removeFile(index);
                 }}
               >
                 Odebrat

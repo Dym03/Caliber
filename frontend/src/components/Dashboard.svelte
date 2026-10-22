@@ -1,42 +1,42 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { apiUrl } from '../lib/api'
-  import type { DashboardStatsResponse } from '../types/stats'
-  import { categoryClass, clinvarVariantUrl } from '../lib/utils'
+  import { onMount } from 'svelte';
+  import { apiUrl } from '../lib/api';
+  import type { DashboardStatsResponse } from '../types/stats';
+  import { categoryClass, clinvarVariantUrl } from '../lib/utils';
 
   interface Props {
-    onunauthorized?: () => void
+    onunauthorized?: () => void;
   }
 
-  let { onunauthorized }: Props = $props()
+  let { onunauthorized }: Props = $props();
 
-  let stats = $state<DashboardStatsResponse | null>(null)
-  let isLoading = $state(true)
-  let errorMessage = $state('')
+  let stats = $state<DashboardStatsResponse | null>(null);
+  let isLoading = $state(true);
+  let errorMessage = $state('');
 
   const loadStats = async () => {
-    isLoading = true
-    errorMessage = ''
+    isLoading = true;
+    errorMessage = '';
     try {
-      const response = await fetch(apiUrl('/api/stats/'))
+      const response = await fetch(apiUrl('/api/stats/'));
       if (response.status === 401) {
-        onunauthorized?.()
-        return
+        onunauthorized?.();
+        return;
       }
       if (!response.ok) {
-        throw new Error('Chyba při stahování statistik databáze.')
+        throw new Error('Chyba při stahování statistik databáze.');
       }
-      stats = (await response.json()) as DashboardStatsResponse
+      stats = (await response.json()) as DashboardStatsResponse;
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Nepodařilo se načíst data.'
+      errorMessage = err instanceof Error ? err.message : 'Nepodařilo se načíst data.';
     } finally {
-      isLoading = false
+      isLoading = false;
     }
-  }
+  };
 
   onMount(() => {
-    loadStats()
-  })
+    loadStats();
+  });
 </script>
 
 <div class="dashboard-page">
@@ -53,7 +53,11 @@
       {#if stats?.summary.clinvar_last_updated}
         <div class="clinvar-sync-pill">
           <span class="pulse-dot"></span>
-          <span>ClinVar: <strong>{(stats.summary.total_clinvar_variants / 1000000).toFixed(2)}M</strong> (Aktualizováno: {stats.summary.clinvar_last_updated})</span>
+          <span
+            >ClinVar: <strong>{(stats.summary.total_clinvar_variants / 1000000).toFixed(2)}M</strong
+            >
+            (Aktualizováno: {stats.summary.clinvar_last_updated})</span
+          >
         </div>
       {/if}
       <button type="button" class="ghost refresh-btn" onclick={loadStats} disabled={isLoading}>
@@ -103,7 +107,10 @@
 
       <div class="card metric-card highlight">
         <span class="metric-label">Patogenní nálezy (Tř. 4–5)</span>
-        <h3 class="metric-value">{stats.summary.pathogenic_patients} <small>({stats.summary.pathogenic_patients_percentage}%)</small></h3>
+        <h3 class="metric-value">
+          {stats.summary.pathogenic_patients}
+          <small>({stats.summary.pathogenic_patients_percentage}%)</small>
+        </h3>
         <span class="metric-subtext">Pacienti s klinickým záchytem</span>
       </div>
     </div>
@@ -187,7 +194,12 @@
                   <div class="gene-row">
                     <span class="gene-symbol">{gene.symbol}</span>
                     <span class="gene-patients">
-                      <strong>{gene.patient_count}</strong> {gene.patient_count === 1 ? 'pacient' : gene.patient_count < 5 ? 'pacienti' : 'pacientů'}
+                      <strong>{gene.patient_count}</strong>
+                      {gene.patient_count === 1
+                        ? 'pacient'
+                        : gene.patient_count < 5
+                          ? 'pacienti'
+                          : 'pacientů'}
                       <span class="muted">({gene.variant_count} var.)</span>
                     </span>
                   </div>
@@ -215,7 +227,9 @@
 
       {#if stats.recurrent_variants.length === 0}
         <div class="empty-state">
-          <p class="muted">Zatím nebyly zachyceny žádné rekurentní varianty sdílené mezi více pacienty.</p>
+          <p class="muted">
+            Zatím nebyly zachyceny žádné rekurentní varianty sdílené mezi více pacienty.
+          </p>
         </div>
       {:else}
         <div class="recurrent-table-wrap">
@@ -259,12 +273,17 @@
                   </td>
                   <td>
                     <span class="patient-count-badge">
-                      <strong>{item.patient_count}</strong> {item.patient_count === 1 ? 'pacient' : item.patient_count < 5 ? 'pacienti' : 'pacientů'}
+                      <strong>{item.patient_count}</strong>
+                      {item.patient_count === 1
+                        ? 'pacient'
+                        : item.patient_count < 5
+                          ? 'pacienti'
+                          : 'pacientů'}
                     </span>
                   </td>
                   <td>
                     {#if item.category !== null && item.category !== undefined}
-                      <span class="{categoryClass(item.category)}">
+                      <span class={categoryClass(item.category)}>
                         {item.category}
                       </span>
                     {:else}
@@ -280,7 +299,9 @@
                         class="clinvar-badge {categoryClass(item.clinvar_classification)}"
                         title="Zobrazit v databázi NCBI ClinVar (ID {item.clinvar_id})"
                       >
-                        ClinVar {item.clinvar_classification !== null ? item.clinvar_classification : 'VCV'}
+                        ClinVar {item.clinvar_classification !== null
+                          ? item.clinvar_classification
+                          : 'VCV'}
                       </a>
                     {:else}
                       <span class="muted">—</span>
@@ -403,7 +424,9 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      box-shadow 0.2s ease;
   }
 
   .metric-card:hover {
@@ -472,18 +495,40 @@
   }
 
   /* Segment colors */
-  .distribution-segment.c5 { background-color: #ef4444; }
-  .distribution-segment.c4-5 { background-color: #f87171; }
-  .distribution-segment.c4 { background-color: #f97316; }
-  .distribution-segment.c3-4 { background-color: #fb923c; }
-  .distribution-segment.c3 { background-color: #8b5cf6; }
-  .distribution-segment.c2-3 { background-color: #a78bfa; }
-  .distribution-segment.c2 { background-color: #34d399; }
-  .distribution-segment.c1-2 { background-color: #6ee7b7; }
-  .distribution-segment.c1 { background-color: #10b981; }
-  .distribution-segment.c0 { background-color: #94a3b8; }
-  .distribution-segment.c-1 { background-color: #78716c; }
-  
+  .distribution-segment.c5 {
+    background-color: #ef4444;
+  }
+  .distribution-segment.c4-5 {
+    background-color: #f87171;
+  }
+  .distribution-segment.c4 {
+    background-color: #f97316;
+  }
+  .distribution-segment.c3-4 {
+    background-color: #fb923c;
+  }
+  .distribution-segment.c3 {
+    background-color: #8b5cf6;
+  }
+  .distribution-segment.c2-3 {
+    background-color: #a78bfa;
+  }
+  .distribution-segment.c2 {
+    background-color: #34d399;
+  }
+  .distribution-segment.c1-2 {
+    background-color: #6ee7b7;
+  }
+  .distribution-segment.c1 {
+    background-color: #10b981;
+  }
+  .distribution-segment.c0 {
+    background-color: #94a3b8;
+  }
+  .distribution-segment.c-1 {
+    background-color: #78716c;
+  }
+
   /* Category List */
   .category-list {
     display: flex;
@@ -795,7 +840,9 @@
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .empty-note {
@@ -825,4 +872,3 @@
     }
   }
 </style>
-

@@ -1,13 +1,13 @@
 <script lang="ts">
   interface Props {
-    currentView: 'registry' | 'batch' | 'dashboard'
-    onviewchange: (view: 'registry' | 'batch' | 'dashboard') => void
-    userLabel: string
-    isStaff?: boolean
-    onlogout: () => void
+    currentView: 'registry' | 'batch' | 'dashboard';
+    onviewchange: (view: 'registry' | 'batch' | 'dashboard') => void;
+    userLabel: string;
+    isStaff?: boolean;
+    onlogout: () => void;
   }
 
-  let { currentView, onviewchange, userLabel, isStaff = false, onlogout }: Props = $props()
+  let { currentView, onviewchange, userLabel, isStaff = false, onlogout }: Props = $props();
 </script>
 
 <header class="topbar">
@@ -58,9 +58,7 @@
         <span class="user-chip__label">Přihlášen</span>
         <span class="user-chip__value">{userLabel}</span>
       </div>
-      <button type="button" class="ghost logout-btn" onclick={onlogout}>
-        Odhlásit
-      </button>
+      <button type="button" class="ghost logout-btn" onclick={onlogout}> Odhlásit </button>
     </div>
   </div>
 </header>

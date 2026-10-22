@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { Variant } from '../types/variant'
-  import { apiUrl, getCookie } from '../lib/api'
-  
+  import type { Variant } from '../types/variant';
+  import { apiUrl, getCookie } from '../lib/api';
+
   interface Props {
     variant: Variant;
     onclose: () => void;
@@ -13,7 +13,7 @@
     return {
       destroy() {
         node.remove();
-      }
+      },
     };
   }
 
@@ -32,7 +32,7 @@
         method: 'DELETE',
         headers: {
           'X-CSRFToken': getCookie('csrftoken'),
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
       });
 
@@ -63,7 +63,7 @@
         method: 'DELETE',
         headers: {
           'X-CSRFToken': getCookie('csrftoken'),
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
       });
 
@@ -86,17 +86,19 @@
   };
 </script>
 
-<div 
-  class="modal-backdrop" 
-  use:portal 
-  onclick={onclose} 
-  onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
-  role="button" 
+<div
+  class="modal-backdrop"
+  use:portal
+  onclick={onclose}
+  onkeydown={(e) => {
+    if (e.key === 'Escape') onclose();
+  }}
+  role="button"
   tabindex="0"
   aria-label="Zavřít modal"
 >
-  <div 
-    class="modal-content card" 
+  <div
+    class="modal-content card"
     role="dialog"
     aria-modal="true"
     tabindex="-1"
@@ -107,7 +109,7 @@
       <h3>Detaily: {variant.gene} ({variant.variant || 'Neznámá varianta'})</h3>
       <button type="button" class="close-btn ghost" onclick={onclose}>✕</button>
     </div>
-    
+
     <div class="modal-body">
       <div class="detail-group">
         <span class="muted">Varianta (HGVS)</span>
@@ -125,17 +127,24 @@
           <p>
             <b>{variant.report_name}</b>
             {#if variant.report_variants_count}
-              <span class="report-badge">obsahuje {variant.report_variants_count} {variant.report_variants_count === 1 ? 'variantu' : (variant.report_variants_count >= 2 && variant.report_variants_count <= 4 ? 'varianty' : 'variant')}</span>
+              <span class="report-badge"
+                >obsahuje {variant.report_variants_count}
+                {variant.report_variants_count === 1
+                  ? 'variantu'
+                  : variant.report_variants_count >= 2 && variant.report_variants_count <= 4
+                    ? 'varianty'
+                    : 'variant'}</span
+              >
             {/if}
           </p>
         </div>
       {/if}
-      
+
       <div class="detail-group">
         <span class="muted">Komentář k variantě</span>
         <p>{variant.comment || 'Žádný komentář není k dispozici.'}</p>
       </div>
-      
+
       <div class="detail-group">
         <span class="muted">Vytvořil</span>
         <p>{variant.created_by}</p>
@@ -161,7 +170,10 @@
               <button
                 type="button"
                 class="btn-danger-outline"
-                onclick={() => { confirmMode = 'variant'; deleteError = ''; }}
+                onclick={() => {
+                  confirmMode = 'variant';
+                  deleteError = '';
+                }}
               >
                 Smazat tuto variantu
               </button>
@@ -169,7 +181,10 @@
                 <button
                   type="button"
                   class="btn-danger-outline"
-                  onclick={() => { confirmMode = 'report'; deleteError = ''; }}
+                  onclick={() => {
+                    confirmMode = 'report';
+                    deleteError = '';
+                  }}
                 >
                   Smazat celý report
                 </button>
@@ -177,13 +192,16 @@
             </div>
           {:else if confirmMode === 'variant'}
             <div class="confirm-box">
-              <div class="confirm-box-title">
-                ⚠️ Potvrzení smazání varianty
-              </div>
+              <div class="confirm-box-title">⚠️ Potvrzení smazání varianty</div>
               <p class="confirm-box-text">
-                Opravdu si přejete smazat variantu <b>{variant.gene} ({variant.variant || 'bez HGVS'})</b> pro pacienta <b>{variant.patient_id}</b>?
+                Opravdu si přejete smazat variantu <b
+                  >{variant.gene} ({variant.variant || 'bez HGVS'})</b
+                >
+                pro pacienta <b>{variant.patient_id}</b>?
                 {#if variant.report_variants_count === 1}
-                  <br /><span class="confirm-note">Jelikož jde o jedinou variantu v reportu, bude odstraněn i samotný report.</span>
+                  <br /><span class="confirm-note"
+                    >Jelikož jde o jedinou variantu v reportu, bude odstraněn i samotný report.</span
+                  >
                 {/if}
               </p>
               <div class="confirm-buttons">
@@ -199,7 +217,10 @@
                   type="button"
                   class="ghost"
                   disabled={isDeleting}
-                  onclick={() => { confirmMode = null; deleteError = ''; }}
+                  onclick={() => {
+                    confirmMode = null;
+                    deleteError = '';
+                  }}
                 >
                   Zrušit
                 </button>
@@ -207,14 +228,14 @@
             </div>
           {:else if confirmMode === 'report'}
             <div class="confirm-box">
-              <div class="confirm-box-title">
-                🚨 Potvrzení smazání celého reportu
-              </div>
+              <div class="confirm-box-title">🚨 Potvrzení smazání celého reportu</div>
               <p class="confirm-box-text">
-                Opravdu si přejete smazat celý report <b>{variant.report_name}</b> pro pacienta <b>{variant.patient_id}</b>?
+                Opravdu si přejete smazat celý report <b>{variant.report_name}</b> pro pacienta
+                <b>{variant.patient_id}</b>?
                 <br />
                 <span class="confirm-note">
-                  Tato akce nenávratně smaže <b>všech {variant.report_variants_count} variant</b> náležejících k tomuto reportu. Použijte při chybném nahrání souboru.
+                  Tato akce nenávratně smaže <b>všech {variant.report_variants_count} variant</b> náležejících
+                  k tomuto reportu. Použijte při chybném nahrání souboru.
                 </span>
               </p>
               <div class="confirm-buttons">
@@ -230,7 +251,10 @@
                   type="button"
                   class="ghost"
                   disabled={isDeleting}
-                  onclick={() => { confirmMode = null; deleteError = ''; }}
+                  onclick={() => {
+                    confirmMode = null;
+                    deleteError = '';
+                  }}
                 >
                   Zrušit
                 </button>

@@ -44,7 +44,6 @@ def download_monthly_release():
             return
         raise
 
-
     # 2. Cache Check: Compare with local file if it exists
     if LOCAL_FILE.exists():
         logger.info("Comparing local file hash with server hash...")

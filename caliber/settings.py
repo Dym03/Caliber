@@ -128,7 +128,9 @@ USE_TZ = True
 FORCE_SCRIPT_NAME = env("FORCE_SCRIPT_NAME", default=None) or None
 _raw_static_url = env("STATIC_URL", default=None)
 if _raw_static_url:
-    STATIC_URL = _raw_static_url if _raw_static_url.endswith("/") else f"{_raw_static_url}/"
+    STATIC_URL = (
+        _raw_static_url if _raw_static_url.endswith("/") else f"{_raw_static_url}/"
+    )
 elif FORCE_SCRIPT_NAME:
     STATIC_URL = f"{FORCE_SCRIPT_NAME.rstrip('/')}/static/"
 else:
@@ -138,8 +140,12 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 WHITENOISE_STATIC_PREFIX = "/static/"
 
 # File upload limits (default 100MB for large genomic spreadsheets)
-DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("DATA_UPLOAD_MAX_MEMORY_SIZE", default=100 * 1024 * 1024)  # 100 MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = env.int("FILE_UPLOAD_MAX_MEMORY_SIZE", default=100 * 1024 * 1024)  # 100 MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int(
+    "DATA_UPLOAD_MAX_MEMORY_SIZE", default=100 * 1024 * 1024
+)  # 100 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = env.int(
+    "FILE_UPLOAD_MAX_MEMORY_SIZE", default=100 * 1024 * 1024
+)  # 100 MB
 
 STATICFILES_DIRS = [
     BASE_DIR / "static",

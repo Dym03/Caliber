@@ -2,7 +2,14 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.core.models import Gene, GeneVariant, TranscriptAnnotation, Patient, GeneticReport, PatientVariant
+from apps.core.models import (
+    Gene,
+    GeneVariant,
+    TranscriptAnnotation,
+    Patient,
+    GeneticReport,
+    PatientVariant,
+)
 
 
 class SearchVariantsTests(TestCase):
@@ -185,5 +192,3 @@ class SearchVariantsTests(TestCase):
         self.assertIn("recurrent_variants", data)
         self.assertIn("recent_reports", data)
         self.assertEqual(data["summary"]["total_patients"], 0)
-
-

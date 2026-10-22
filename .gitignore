@@ -140,5 +140,9 @@ GitHub.sublime-settings
 !.vscode/extensions.json 
 .history
 
+# SvelteKit #
+node_modules/
+.svelte-kit/
+
 /data
 /orig_data

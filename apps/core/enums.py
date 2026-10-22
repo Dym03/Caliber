@@ -5,7 +5,9 @@ class ClassificationEnum(Enum):
     PATHOGENIC = "Pathogenic"
     PATHOGENIC_LIKELY_PATHOGENIC = "Pathogenic/Likely pathogenic"
     LIKELY_PATHOGENIC = "Likely pathogenic"
-    UNCERTAIN_SIGNIFICANCE_LIKELY_PATHOGENIC = "Uncertain significance/Likely pathogenic"
+    UNCERTAIN_SIGNIFICANCE_LIKELY_PATHOGENIC = (
+        "Uncertain significance/Likely pathogenic"
+    )
     UNCERTAIN_SIGNIFICANCE = "Uncertain significance"
     LIKELY_BENIGN_UNCERTAIN_SIGNIFICANCE = "Likely benign/Uncertain significance"
     LIKELY_BENIGN = "Likely benign"
@@ -96,7 +98,7 @@ ClassificationEnum._DIRECT_MAP = {
     "hypomorph variant": ClassificationEnum.HYPOMORF_VARIANT,
     "pharmaco risk factor": ClassificationEnum.PHARMACO_RISK_FACTOR,
     "somatic": ClassificationEnum.SOMATIC,
-    "" : ClassificationEnum.UNCLASSIFIED,
+    "": ClassificationEnum.UNCLASSIFIED,
 }
 
 ClassificationEnum._EXCEL_MAP = {
@@ -130,7 +132,7 @@ ClassificationEnum._CLASSIFICATION_SCORE_TO_STRING = {
     1.5: "1-2",
     1.0: "1",
     0.0: "0",
-    -1.0 : "",
+    -1.0: "",
 }
 
 ClassificationEnum._SCORES = {
@@ -143,9 +145,9 @@ ClassificationEnum._SCORES = {
     ClassificationEnum.UNCERTAIN_SIGNIFICANCE_LIKELY_PATHOGENIC: 3.5,
     ClassificationEnum.UNCERTAIN_SIGNIFICANCE: 3.0,
     ClassificationEnum.LIKELY_BENIGN_UNCERTAIN_SIGNIFICANCE: 2.5,
-    ClassificationEnum.LIKELY_BENIGN : 2.0,
+    ClassificationEnum.LIKELY_BENIGN: 2.0,
     ClassificationEnum.BENIGN_LIKELY_BENIGN: 1.5,
     ClassificationEnum.BENIGN: 1.0,
-    ClassificationEnum.ARTEFACT : 0.0,
-    ClassificationEnum.UNCLASSIFIED : -1.0,
+    ClassificationEnum.ARTEFACT: 0.0,
+    ClassificationEnum.UNCLASSIFIED: -1.0,
 }

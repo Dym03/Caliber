@@ -25,7 +25,8 @@
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top, rgba(63, 111, 116, 0.18), transparent 55%),
+  background:
+    radial-gradient(circle at top, rgba(63, 111, 116, 0.18), transparent 55%),
     linear-gradient(120deg, #f6f0e9 0%, #eef2f0 45%, #f5efe8 100%);
   min-height: 100vh;
 }
@@ -363,7 +364,9 @@ input {
   color: #fff;
   font-weight: 500;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .search-row button:hover,
@@ -423,7 +426,10 @@ input {
   gap: 10px;
   position: relative;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .dropzone:focus-visible {
@@ -499,7 +505,9 @@ input {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .clear-file:hover {
@@ -538,7 +546,9 @@ input {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .remove-file:hover {
@@ -751,7 +761,9 @@ input {
 
 .clinvar-badge {
   text-decoration: none;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .clinvar-badge:hover {
@@ -817,7 +829,7 @@ input {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
 }
 
 .modal-header {
@@ -880,12 +892,12 @@ input {
   padding: 0;
   margin: 0;
   width: 100%;
-  
+
   /* Flex centering specifically for the SVG inside the massive box */
   display: flex;
   align-items: center;
   justify-content: center;
-  
+
   color: #94a3b8; /* Muted grey eye icon */
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1447,4 +1459,3 @@ input {
   color: var(--teal);
   text-decoration: underline;
 }
-
