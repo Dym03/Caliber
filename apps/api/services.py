@@ -226,6 +226,11 @@ def process_uploaded_variants_file(uploaded_file, user: User | None = None) -> d
                 with transaction.atomic():
                     parse_df(df, name, user=user, patient_id=patient_id)
                     rows_processed += df.height
+            elif len(sheet_names) == 1: # If there's only one sheet, process it even if it doesn't match the pattern
+                df = excel_reader.load_sheet(sheet).to_polars()
+                with transaction.atomic():
+                    parse_df(df, name, user=user)
+                    rows_processed += df.height
 
         return {"filename": name, "rows": rows_processed}
     finally:
