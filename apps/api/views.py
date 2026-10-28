@@ -5,7 +5,7 @@ from django.http import HttpResponse, JsonResponse, Http404
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.core.exceptions import PermissionDenied
 
-from apps.core.auth import login_required_json
+from apps.core.auth import login_required_json, parse_request_data
 from apps.api.services import (
     annotate_excel_workbook,
     get_dashboard_statistics,
@@ -13,17 +13,14 @@ from apps.api.services import (
     process_uploaded_variants_file,
     query_variants,
     delete_patient_variant,
+    update_patient_variant,
     delete_genetic_report,
 )
-from apps.core.management.commands.init_db import (
-    parse_excel_dbsnp,
-)
-from apps.core.management.commands.init_db import parse_excel_hgvs
+from apps.core.management.commands.init_db import parse_excel_dbsnp, parse_excel_hgvs
 
 logger = logging.getLogger(__name__)
 
 
-# TODO: Imporove FE part so it displays all the info about the variant in the detail.
 @login_required_json
 def search_variants(request):
     """
@@ -44,8 +41,9 @@ def search_variants(request):
     gene = request.GET.get("gene", "").strip()
     dbsnp = request.GET.get("dbsnp", "").strip()
     patient_id = request.GET.get("patient_id", "").strip()
+    sort_by = request.GET.get("sort", "genomic").strip()
     page_number = request.GET.get("page", 1)
-    per_page = request.GET.get("per_page", 50)
+    per_page = request.GET.get("per_page", 20)
 
     if not (variant or gene or dbsnp or patient_id):
         return JsonResponse(
@@ -54,12 +52,24 @@ def search_variants(request):
 
     try:
         response_data = query_variants(
-            variant, gene, dbsnp, page_number, per_page, patient_id=patient_id
+            variant,
+            gene,
+            dbsnp,
+            page_number,
+            per_page,
+            patient_id=patient_id,
+            sort_by=sort_by,
+            user=request.user,
         )
         return JsonResponse(response_data)
     except Exception as e:
-        logger.exception("Chyba při vyhledávání variant.")
-        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
+        logger.exception(f"Chyba při vyhledávání variant. {str(e)}")
+        return JsonResponse(
+            {
+                "error": "Chyba při vyhledávaní variant. V případě závažné chyby požádejte spávce o výpis logu"
+            },
+            status=500,
+        )
 
 
 @require_POST
@@ -76,7 +86,7 @@ def upload_variants_file(request):
     if not uploaded_files:
         return JsonResponse({"error": "No file provided."}, status=400)
 
-    allowed_extensions = {".xlsx", ".xls", ".csv"}
+    allowed_extensions = {".xlsx", ".xls"}
     for uploaded in uploaded_files:
         if not any(uploaded.name.lower().endswith(ext) for ext in allowed_extensions):
             return JsonResponse(
@@ -97,21 +107,19 @@ def upload_variants_file(request):
             }
         )
     except Exception as e:
-        logger.exception("Chyba při nahrávání souboru variant.")
+        logger.exception(f"Chyba při nahrávání souboru variant.{str(e)}")
         return JsonResponse(
-            {"error": f"Chyba při zpracování souborů: {str(e)}"}, status=500
+            {"error": "Chyba při zpracování souborů: požádejte správce o výpis logu"},
+            status=500,
         )
 
 
-# TODO Sheet name have to be either default or we have to get it from the user. Currently it is hardcoded to default.
 @require_POST
 @login_required_json
 def classify_variants(request):
     """
     Handle the upload of an Excel file containing variants and classify them based on internal and ClinVar data.
     """
-    if request.method != "POST":
-        return JsonResponse({"error": "Requires POST method."}, status=405)
 
     uploaded_file = request.FILES.get("file")
     if not uploaded_file:
@@ -148,6 +156,7 @@ def classify_variants(request):
             )
 
         unique_dbsnps = []
+        unique_variants = []
 
         if dbsnp_col:
             parsed_dbsnps = [
@@ -168,7 +177,6 @@ def classify_variants(request):
                 if str(x).strip()
             ]
 
-            unique_variants = []
             for v in raw_variants:
                 _, _, hgvs = parse_excel_hgvs(v)
                 if hgvs:
@@ -188,8 +196,12 @@ def classify_variants(request):
         return response
 
     except Exception as e:
+        logger.exception(f"Chyba při analýze dokumentu {str(e)}")
         return JsonResponse(
-            {"error": f"Chyba serveru při analýze: {str(e)}"}, status=500
+            {
+                "error": "Chyba serveru při analýze: zkontrolujte strukturu, případně požádejte spŕavce o výpis logu."
+            },
+            status=500,
         )
 
 
@@ -203,27 +215,60 @@ def dashboard_stats(request):
         data = get_dashboard_statistics()
         return JsonResponse(data)
     except Exception as e:
-        logger.exception("Chyba při načítání statistik databáze.")
-        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
+        logger.exception(f"Chyba při načítání statistik databáze: {str(e)}")
+        return JsonResponse(
+            {
+                "error": "Chyba při načítání statistik databáze: v případě potřeby požádejte správce o výpis z logu."
+            },
+            status=500,
+        )
 
 
 @login_required_json
-@require_http_methods(["DELETE", "POST"])
-def delete_patient_variant_view(request, variant_id: int):
+@require_http_methods(["DELETE", "PATCH", "POST", "PUT"])
+def patient_variant_detail_view(request, variant_id: int):
     """
-    Deletes a specific patient variant observation.
-    Requires user to be the report creator or staff/superuser.
+    Deletes or updates a specific patient variant observation.
     """
-    try:
-        result = delete_patient_variant(variant_id, request.user)
-        return JsonResponse(result)
-    except Http404 as e:
-        return JsonResponse({"error": str(e)}, status=404)
-    except PermissionDenied as e:
-        return JsonResponse({"error": str(e)}, status=403)
-    except Exception as e:
-        logger.exception("Chyba při mazání varianty.")
-        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)
+    if request.method == "DELETE":
+        try:
+            result = delete_patient_variant(variant_id, request.user)
+            return JsonResponse(result)
+        except Http404 as e:
+            return JsonResponse({"error": str(e)}, status=404)
+        except PermissionDenied as e:
+            return JsonResponse({"error": str(e)}, status=403)
+        except Exception as e:
+            logger.exception(f"Chyba při mazání varianty. {str(e)}")
+            return JsonResponse(
+                {"error": f"Internal server error: {str(e)}"}, status=500
+            )
+    else:
+        try:
+            data = parse_request_data(request)
+            category = data.get("category")
+            comment = data.get("comment")
+            result = update_patient_variant(
+                variant_id,
+                request.user,
+                category=category,
+                comment=comment,
+            )
+            return JsonResponse(result)
+        except Http404 as e:
+            return JsonResponse({"error": str(e)}, status=404)
+        except PermissionDenied as e:
+            return JsonResponse({"error": str(e)}, status=403)
+        except ValueError as e:
+            return JsonResponse({"error": str(e)}, status=400)
+        except Exception as e:
+            logger.exception("Chyba při aktualizaci hodnocení varianty.")
+            return JsonResponse(
+                {"error": f"Internal server error: {str(e)}"}, status=500
+            )
+
+
+delete_patient_variant_view = patient_variant_detail_view
 
 
 @login_required_json
@@ -241,5 +286,5 @@ def delete_genetic_report_view(request, report_id: int):
     except PermissionDenied as e:
         return JsonResponse({"error": str(e)}, status=403)
     except Exception as e:
-        logger.exception("Chyba při mazání reportu.")
+        logger.exception(f"Chyba při mazání reportu.{str(e)}")
         return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500)

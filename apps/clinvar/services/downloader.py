@@ -58,7 +58,9 @@ def download_monthly_release():
 
     # 3. Stream the download directly to disk (safeguards RAM usage)
     logger.info("Downloading massive release file (~30GB+ uncompressed)...")
-    with urllib.request.urlopen(CLINVAR_URL) as remote_stream:
+    with urllib.request.urlopen(
+        CLINVAR_URL, timeout=86_400
+    ) as remote_stream:  # 24 hours timeout for large files
         with open(LOCAL_FILE, "wb") as local_file:
             while chunk := remote_stream.read(
                 65536

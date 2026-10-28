@@ -91,21 +91,35 @@ if DATABASES["default"].get("ENGINE") != "django.db.backends.sqlite3":
     DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
 
 
+# Cache configuration
+# https://docs.djangoproject.com/en/6.0/ref/settings/#caches
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "caliber-cache",
+    }
+}
+
+# Security and User Management Settings
+REQUIRE_ACCOUNT_APPROVAL = env.bool("REQUIRE_ACCOUNT_APPROVAL", default=False)
+RATELIMIT_ENABLED = env.bool("RATELIMIT_ENABLED", default=True)
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "NAME": "apps.core.validators.CzechUserAttributeSimilarityValidator",
     },
     {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "NAME": "apps.core.validators.CzechMinimumLengthValidator",
     },
     {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+        "NAME": "apps.core.validators.CzechCommonPasswordValidator",
     },
     {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+        "NAME": "apps.core.validators.CzechNumericPasswordValidator",
     },
 ]
 

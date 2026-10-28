@@ -7,7 +7,7 @@
   import ResultsTable from './components/ResultsTable.svelte';
   import VariantClassifier from './components/VariantClassifier.svelte';
   import Dashboard from './components/Dashboard.svelte';
-  import { apiUrl } from './lib/api';
+  import { apiUrl, getCookie } from './lib/api';
 
   import type { Variant } from './types/variant';
   import type { PaginationMeta } from './types/pagination';
@@ -28,6 +28,8 @@
     authenticated: boolean;
     user: AuthUser | null;
     error?: string;
+    pending_approval?: boolean;
+    message?: string;
   };
 
   type AuthMode = 'login' | 'register';
@@ -40,10 +42,11 @@
   let isSearching = $state(false);
   let errorMessage = $state('');
 
-  let results = $state<Variant[]>([]);
-  let meta = $state<PaginationMeta | null>(null);
-  let currentPage = $state(1);
-  let currentView = $state<'registry' | 'batch' | 'dashboard'>('registry');
+  let results = $state<Variant[]>([])
+  let meta = $state<PaginationMeta | null>(null)
+  let currentPage = $state(1)
+  let currentSort = $state('genomic')
+  let currentView = $state<'registry' | 'batch' | 'dashboard'>('registry')
 
   let sessionState = $state<SessionState>('loading');
   let currentUser = $state<AuthUser | null>(null);
@@ -55,12 +58,6 @@
   let authMessage = $state('');
   let authError = $state('');
   let authSubmitting = $state(false);
-
-  const csrfToken = () => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; csrftoken=`);
-    return parts.length === 2 ? parts.pop()?.split(';').shift() || '' : '';
-  };
 
   const clearSearch = () => {
     variantQuery = '';
@@ -135,7 +132,7 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken(),
+          'X-CSRFToken': getCookie('csrftoken'),
         },
         body: JSON.stringify(payload),
       });
@@ -143,6 +140,14 @@
       const data = (await response.json().catch(() => ({}))) as AuthResponse;
       if (!response.ok) {
         throw new Error(data.error || 'Přihlášení se nezdařilo.');
+      }
+
+      if (data.pending_approval) {
+        authMode = 'login';
+        authPassword = '';
+        authPasswordConfirm = '';
+        authMessage = data.message || 'Účet byl úspěšně vytvořen a čeká na schválení administrátorem.';
+        return;
       }
 
       setAuthenticatedUser(
@@ -162,7 +167,7 @@
       await fetch(apiUrl('/auth/logout/'), {
         method: 'POST',
         headers: {
-          'X-CSRFToken': csrfToken(),
+          'X-CSRFToken': getCookie('csrftoken'),
         },
       });
     } finally {
@@ -179,14 +184,14 @@
     errorMessage = '';
     currentPage = page;
 
-    const params = new URLSearchParams({
-      variant: variantQuery.trim(),
-      gene: geneQuery.trim(),
-      dbsnp: dbsnpQuery.trim(),
-      patient_id: patientIdQuery.trim(),
-      page: String(page),
-      per_page: '50',
-    });
+    const params = new URLSearchParams()
+    if (variantQuery.trim()) params.set('variant', variantQuery.trim())
+    if (geneQuery.trim()) params.set('gene', geneQuery.trim())
+    if (dbsnpQuery.trim()) params.set('dbsnp', dbsnpQuery.trim())
+    if (patientIdQuery.trim()) params.set('patient_id', patientIdQuery.trim())
+    if (currentSort) params.set('sort', currentSort)
+    params.set('page', String(page))
+    params.set('per_page', '20')
 
     if (
       ![
@@ -248,7 +253,12 @@
     runSearch(targetPage);
   };
 
-  onMount(loadSession);
+  const handleSortChange = (newSort: string) => {
+    currentSort = newSort
+    runSearch(1)
+  }
+
+  onMount(loadSession)
 </script>
 
 {#if sessionState === 'loading'}
@@ -294,8 +304,11 @@
         <ResultsTable
           {results}
           {meta}
+          {currentSort}
+          {currentUser}
           onrefresh={() => runSearch(currentPage)}
           onpagechange={handlePageChange}
+          onsortchange={handleSortChange}
           ondeleted={handleItemDeleted}
         />
       </section>

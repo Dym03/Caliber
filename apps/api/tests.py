@@ -1,3 +1,4 @@
+import json
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -9,6 +10,7 @@ from apps.core.models import (
     Patient,
     GeneticReport,
     PatientVariant,
+    User,
 )
 
 
@@ -155,6 +157,62 @@ class SearchVariantsTests(TestCase):
         self.assertFalse(GeneticReport.objects.filter(id=rep.id).exists())
         self.assertFalse(Patient.objects.filter(id=pat.id).exists())
 
+    def test_update_patient_variant_category(self):
+        pat = Patient.objects.create(name="PAC-EDIT")
+        rep = GeneticReport.objects.create(
+            patient=pat,
+            created_by=self.user,
+            report_name="edit_test.xlsx",
+        )
+        variant = GeneVariant.objects.first()
+        pv = PatientVariant.objects.create(
+            report=rep,
+            variant=variant,
+            category=3.0,
+            comment="Initial VUS",
+        )
+
+        # 1. Non-creator non-staff user gets 403 Forbidden
+        other_user = User.objects.create_user(
+            email="other@test.cz", username="other_user", password="password"
+        )
+        self.client.force_login(other_user)
+        response_forbidden = self.client.patch(
+            reverse("delete_patient_variant", args=[pv.id]),
+            data=json.dumps({"category": 4.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(response_forbidden.status_code, 403)
+
+        # 2. Creator can update (200 OK)
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            reverse("delete_patient_variant", args=[pv.id]),
+            data=json.dumps({"category": 5.0, "comment": "Updated to Pathogenic"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        pv.refresh_from_db()
+        self.assertEqual(pv.category, 5.0)
+        self.assertEqual(pv.comment, "Updated to Pathogenic")
+
+        # 3. Staff user (even if not creator) can update (200 OK)
+        staff_user = User.objects.create_user(
+            email="staff@test.cz",
+            username="staff_user",
+            password="password",
+            is_staff=True,
+        )
+        self.client.force_login(staff_user)
+        response_staff = self.client.patch(
+            reverse("delete_patient_variant", args=[pv.id]),
+            data=json.dumps({"category": 4.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(response_staff.status_code, 200)
+        pv.refresh_from_db()
+        self.assertEqual(pv.category, 4.0)
+
     def test_delete_genetic_report(self):
         pat = Patient.objects.create(name="PAC-REP-DEL")
         rep = GeneticReport.objects.create(
@@ -192,3 +250,81 @@ class SearchVariantsTests(TestCase):
         self.assertIn("recurrent_variants", data)
         self.assertIn("recent_reports", data)
         self.assertEqual(data["summary"]["total_patients"], 0)
+
+    def test_grouped_variants_with_reclassification_and_patient_priority(self):
+        variant = GeneVariant.objects.first()
+
+        # Patient A with Report 1 (oldest: 3.0)
+        pat_a = Patient.objects.create(name="PAC-A")
+        rep_a1 = GeneticReport.objects.create(
+            patient=pat_a,
+            created_by=self.user,
+            report_name="report_2024.xlsx",
+        )
+        PatientVariant.objects.create(
+            report=rep_a1,
+            variant=variant,
+            category=3.0,
+            comment="Old VUS evaluation",
+        )
+
+        # Patient B with Report 2 (middle: 4.0)
+        pat_b = Patient.objects.create(name="PAC-B")
+        rep_b = GeneticReport.objects.create(
+            patient=pat_b,
+            created_by=self.user,
+            report_name="report_b.xlsx",
+        )
+        PatientVariant.objects.create(
+            report=rep_b,
+            variant=variant,
+            category=4.0,
+        )
+
+        # Patient A with Report 3 (latest reclassification: 5.0)
+        rep_a2 = GeneticReport.objects.create(
+            patient=pat_a,
+            created_by=self.user,
+            report_name="report_2026.xlsx",
+        )
+        PatientVariant.objects.create(
+            report=rep_a2,
+            variant=variant,
+            category=5.0,
+            comment="Reclassified to Pathogenic",
+        )
+
+        # 1. Search by gene (BRCA1)
+        response = self.client.get(reverse("search_variants"), {"gene": "BRCA1"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        results = data["results"]
+
+        self.assertEqual(len(results), 1)
+        res_var = results[0]
+        self.assertEqual(res_var["patients_count"], 2)
+        self.assertEqual(res_var["total_observations"], 3)
+        self.assertEqual(res_var["latest_category"], 5.0)
+        self.assertTrue(res_var["has_conflicting_categories"])
+        self.assertEqual(len(res_var["patients"]), 2)
+
+        # Check Patient A has latest category 5.0 and history with 3.0
+        pat_a_res = next(p for p in res_var["patients"] if p["patient_id"] == "PAC-A")
+        self.assertEqual(pat_a_res["category"], 5.0)
+        self.assertEqual(pat_a_res["comment"], "Reclassified to Pathogenic")
+        self.assertEqual(pat_a_res["history_count"], 1)
+        self.assertEqual(pat_a_res["history"][0]["category"], 3.0)
+        self.assertEqual(pat_a_res["history"][0]["report_name"], "report_2024.xlsx")
+
+        # 2. Search by patient_id: PAC-B should appear first (pinned) in patients list
+        response_b = self.client.get(
+            reverse("search_variants"), {"patient_id": "PAC-B"}
+        )
+        self.assertEqual(response_b.status_code, 200)
+        results_b = response_b.json()["results"]
+        self.assertEqual(len(results_b), 1)
+        patients_list = results_b[0]["patients"]
+        self.assertEqual(patients_list[0]["patient_id"], "PAC-B")
+        self.assertTrue(patients_list[0]["is_searched_patient"])
+        self.assertEqual(patients_list[1]["patient_id"], "PAC-A")
+        self.assertFalse(patients_list[1]["is_searched_patient"])

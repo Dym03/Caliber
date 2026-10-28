@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { apiUrl } from '../lib/api';
   import type { DashboardStatsResponse } from '../types/stats';
-  import { categoryClass, clinvarVariantUrl } from '../lib/utils';
+  import { categoryClass, categoryRepr, clinvarVariantUrl } from '../lib/utils';
 
   interface Props {
     onunauthorized?: () => void;
@@ -13,6 +13,160 @@
   let stats = $state<DashboardStatsResponse | null>(null);
   let isLoading = $state(true);
   let errorMessage = $state('');
+
+  // Category filter state: maps string(category) -> boolean
+  let selectedCategoryKeys = $state<Record<string, boolean>>({});
+  let syncRecurrentWithSelection = $state(true);
+
+  const catKey = (catVal: number | null | undefined): string => {
+    return catVal === null || catVal === undefined ? 'null' : String(catVal);
+  };
+
+  const isCategorySelected = (catVal: number | null | undefined): boolean => {
+    const k = catKey(catVal);
+    return selectedCategoryKeys[k] !== false;
+  };
+
+  const toggleCategory = (catVal: number | null | undefined) => {
+    const k = catKey(catVal);
+    const curr = isCategorySelected(catVal);
+    selectedCategoryKeys[k] = !curr;
+  };
+
+  const selectAllCategories = () => {
+    if (!stats) return;
+    const next: Record<string, boolean> = {};
+    for (const cat of stats.categories_breakdown) {
+      next[catKey(cat.category)] = true;
+    }
+    selectedCategoryKeys = next;
+  };
+
+  const deselectAllCategories = () => {
+    if (!stats) return;
+    const next: Record<string, boolean> = {};
+    for (const cat of stats.categories_breakdown) {
+      next[catKey(cat.category)] = false;
+    }
+    selectedCategoryKeys = next;
+  };
+
+  const selectWithoutUnclassified = () => {
+    if (!stats) return;
+    const next: Record<string, boolean> = {};
+    for (const cat of stats.categories_breakdown) {
+      if (cat.category === -1 || cat.category === null) {
+        next[catKey(cat.category)] = false;
+      } else {
+        next[catKey(cat.category)] = true;
+      }
+    }
+    selectedCategoryKeys = next;
+  };
+
+  const selectOnlyPathogenic = () => {
+    if (!stats) return;
+    const next: Record<string, boolean> = {};
+    for (const cat of stats.categories_breakdown) {
+      if (cat.category !== null && cat.category >= 4.0 && cat.category <= 5.0) {
+        next[catKey(cat.category)] = true;
+      } else {
+        next[catKey(cat.category)] = false;
+      }
+    }
+    selectedCategoryKeys = next;
+  };
+
+  const selectVusAndBenign = () => {
+    if (!stats) return;
+    const next: Record<string, boolean> = {};
+    for (const cat of stats.categories_breakdown) {
+      if (cat.category !== null && cat.category >= 1.0 && cat.category <= 3.5) {
+        next[catKey(cat.category)] = true;
+      } else {
+        next[catKey(cat.category)] = false;
+      }
+    }
+    selectedCategoryKeys = next;
+  };
+
+  const selectedCategoriesList = $derived(
+    stats?.categories_breakdown.filter((cat) => isCategorySelected(cat.category)) ?? []
+  );
+
+  const totalSelectedCount = $derived(
+    selectedCategoriesList.reduce((acc, cat) => acc + cat.count, 0)
+  );
+
+  const totalPossibleCount = $derived(
+    stats?.summary.total_patient_variants ?? 0
+  );
+
+  const selectedCountPercentage = $derived(
+    totalPossibleCount > 0 ? ((totalSelectedCount / totalPossibleCount) * 100).toFixed(1) : '0'
+  );
+
+  const isAllSelected = $derived(
+    Boolean(
+      stats &&
+      stats.categories_breakdown.length > 0 &&
+      stats.categories_breakdown.every((cat) => isCategorySelected(cat.category))
+    )
+  );
+
+  const isNoneSelected = $derived(
+    Boolean(
+      stats &&
+      stats.categories_breakdown.length > 0 &&
+      stats.categories_breakdown.every((cat) => !isCategorySelected(cat.category))
+    )
+  );
+
+  const isWithoutUnclassified = $derived(
+    Boolean(
+      stats &&
+      stats.categories_breakdown.length > 0 &&
+      !isAllSelected &&
+      !isNoneSelected &&
+      stats.categories_breakdown.every((cat) => {
+        if (cat.category === -1 || cat.category === null) {
+          return !isCategorySelected(cat.category);
+        }
+        return isCategorySelected(cat.category);
+      })
+    )
+  );
+
+  const isOnlyPathogenic = $derived(
+    Boolean(
+      stats &&
+      stats.categories_breakdown.length > 0 &&
+      !isAllSelected &&
+      !isNoneSelected &&
+      stats.categories_breakdown.every((cat) => {
+        if (cat.category !== null && cat.category >= 4.0 && cat.category <= 5.0) {
+          return isCategorySelected(cat.category);
+        }
+        return !isCategorySelected(cat.category);
+      })
+    )
+  );
+
+  const hasUnclassified = $derived(
+    Boolean(stats?.categories_breakdown.some((cat) => cat.category === -1 || cat.category === null))
+  );
+
+  const getRelativePercentage = (count: number) => {
+    if (totalSelectedCount === 0) return 0;
+    return Number(((count / totalSelectedCount) * 100).toFixed(1));
+  };
+
+  const displayedRecurrentVariants = $derived(
+    stats?.recurrent_variants.filter((item) => {
+      if (!syncRecurrentWithSelection || isAllSelected) return true;
+      return isCategorySelected(item.category);
+    }) ?? []
+  );
 
   const loadStats = async () => {
     isLoading = true;
@@ -124,37 +278,147 @@
             <h3>Klasifikace patogenity (ACMG)</h3>
             <p class="muted">Procentuální a početní zastoupení tříd patogenity v datech</p>
           </div>
+          {#if stats.categories_breakdown.length > 0}
+            <div class="selection-summary-badge" class:has-filter={!isAllSelected}>
+              <span class="summary-count">
+                Vybráno: <strong>{totalSelectedCount.toLocaleString()}</strong> z {totalPossibleCount.toLocaleString()} var.
+              </span>
+              <span class="summary-pct">({selectedCountPercentage}%)</span>
+            </div>
+          {/if}
         </div>
 
         {#if stats.categories_breakdown.length === 0}
           <p class="muted empty-note">V databázi zatím nejsou žádná klasifikovaná data.</p>
         {:else}
-          <!-- Segmented proportional bar -->
-          <div class="distribution-bar" title="Distribuce klasifikací">
-            {#each stats.categories_breakdown as cat}
-              {#if cat.percentage > 0}
-                <div
-                  class="distribution-segment {cat.color_class}"
-                  style="width: {cat.percentage}%"
-                  title="{cat.label}: {cat.count} ({cat.percentage}%)"
-                ></div>
+          <!-- Category selection quick filter toolbar -->
+          <div class="category-filter-toolbar">
+            <span class="filter-label">Rychlý výběr:</span>
+            <div class="filter-chips-list">
+              <button
+                type="button"
+                class="filter-chip-btn {isAllSelected ? 'active' : ''}"
+                onclick={selectAllCategories}
+                title="Zahrnout všechny kategorie"
+              >
+                Všechny ({stats.categories_breakdown.length})
+              </button>
+
+              {#if hasUnclassified}
+                <button
+                  type="button"
+                  class="filter-chip-btn chip-action-exclude {isWithoutUnclassified ? 'active' : ''}"
+                  onclick={selectWithoutUnclassified}
+                  title="Vyřadit kategorii -1 (nezařazené) a ponechat klasifikované třídy"
+                >
+                  ✕ Bez -1
+                </button>
               {/if}
-            {/each}
+
+              <button
+                type="button"
+                class="filter-chip-btn {isOnlyPathogenic ? 'active' : ''}"
+                onclick={selectOnlyPathogenic}
+                title="Pouze patogenní a pravděpodobně patogenní nálezy (třídy 4 a 5)"
+              >
+                Patogenní (4–5)
+              </button>
+
+              <button
+                type="button"
+                class="filter-chip-btn"
+                onclick={selectVusAndBenign}
+                title="Pouze VUS a benigní varianty (třídy 1 až 3)"
+              >
+                VUS & Benigní
+              </button>
+
+              <button
+                type="button"
+                class="filter-chip-btn text-btn {isNoneSelected ? 'active' : ''}"
+                onclick={deselectAllCategories}
+                title="Zrušit výběr všech kategorií"
+              >
+                Zrušit výběr
+              </button>
+            </div>
           </div>
+
+          <!-- Segmented proportional bar -->
+          {#if totalSelectedCount === 0}
+            <div class="distribution-bar empty" title="Nevybrána žádná kategorie">
+              <span class="empty-bar-text">Nevybrána žádná kategorie pro zobrazení distribuce</span>
+            </div>
+          {:else}
+            <div class="distribution-bar" title="Distribuce vybraných klasifikací ({totalSelectedCount} variant)">
+              {#each stats.categories_breakdown as cat}
+                {#if isCategorySelected(cat.category)}
+                  {@const relPct = getRelativePercentage(cat.count)}
+                  {#if relPct > 0}
+                    <div
+                      class="distribution-segment {cat.color_class}"
+                      style="width: {relPct}%"
+                      title="{cat.label}: {cat.count.toLocaleString()} var. ({relPct}% z vybraných, celkově {cat.percentage}%)"
+                    ></div>
+                  {/if}
+                {/if}
+              {/each}
+            </div>
+          {/if}
 
           <!-- Category items breakdown list -->
           <div class="category-list">
             {#each stats.categories_breakdown as cat}
-              <div class="category-item">
+              {@const isSelected = isCategorySelected(cat.category)}
+              {@const relPct = getRelativePercentage(cat.count)}
+              <div
+                class="category-item {isSelected ? 'selected' : 'deselected'}"
+                onclick={() => toggleCategory(cat.category)}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleCategory(cat.category);
+                  }
+                }}
+                title={isSelected ? 'Kliknutím vyřadíte tuto třídu z přehledu' : 'Kliknutím zahrnete tuto třídu do přehledu'}
+              >
                 <div class="category-badge-wrap">
+                  <input
+                    type="checkbox"
+                    class="category-checkbox"
+                    checked={isSelected}
+                    onclick={(e) => e.stopPropagation()}
+                    onchange={() => toggleCategory(cat.category)}
+                    aria-label="Přepnout kategorii {cat.label}"
+                  />
                   <span class="category {cat.color_class}">
-                    {cat.category !== null ? cat.category : '—'}
+                    {cat.category !== null ? categoryRepr(cat.category) : '—'}
                   </span>
                   <span class="category-title">{cat.label}</span>
                 </div>
                 <div class="category-stats">
-                  <span class="category-count"><strong>{cat.count}</strong> var.</span>
-                  <span class="category-pct">{cat.percentage}%</span>
+                  <span class="category-count"><strong>{cat.count.toLocaleString()}</strong> var.</span>
+                  <div class="category-pct-group">
+                    {#if isSelected}
+                      <span class="category-pct" title="Relativní podíl mezi vybranými kategoriemi">
+                        {relPct}%
+                      </span>
+                      {#if !isAllSelected}
+                        <span class="category-pct-global muted" title="Celkový podíl v databázi">
+                          ({cat.percentage}%)
+                        </span>
+                      {/if}
+                    {:else}
+                      <span class="category-pct muted strike" title="Kategorie je vyřazena z výběru">
+                        —
+                      </span>
+                      <span class="category-pct-global muted" title="Celkový podíl v databázi">
+                        ({cat.percentage}%)
+                      </span>
+                    {/if}
+                  </div>
                 </div>
               </div>
             {/each}
@@ -223,6 +487,17 @@
             Varianty nalezené u více pacientů v kohortě (populační hotspoty a časté alely)
           </p>
         </div>
+        {#if !isAllSelected && stats.recurrent_variants.length > 0}
+          <div class="recurrent-filter-toggle">
+            <label class="filter-switch-label" title="Filtrovat tabulku podle výběru kategorií výše">
+              <input
+                type="checkbox"
+                bind:checked={syncRecurrentWithSelection}
+              />
+              <span>Filtrovat podle výběru nahoře ({displayedRecurrentVariants.length}/{stats.recurrent_variants.length})</span>
+            </label>
+          </div>
+        {/if}
       </div>
 
       {#if stats.recurrent_variants.length === 0}
@@ -230,6 +505,15 @@
           <p class="muted">
             Zatím nebyly zachyceny žádné rekurentní varianty sdílené mezi více pacienty.
           </p>
+        </div>
+      {:else if displayedRecurrentVariants.length === 0}
+        <div class="empty-state">
+          <p class="muted">
+            Žádná rekurentní varianta neodpovídá aktuálně vybraným kategoriím.
+          </p>
+          <button type="button" class="ghost btn-sm" onclick={selectAllCategories}>
+            Zobrazit všechny kategorie
+          </button>
         </div>
       {:else}
         <div class="recurrent-table-wrap">
@@ -246,7 +530,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each stats.recurrent_variants as item}
+              {#each displayedRecurrentVariants as item}
                 <tr>
                   <td>
                     <span class="gene-badge">{item.gene}</span>
@@ -284,7 +568,7 @@
                   <td>
                     {#if item.category !== null && item.category !== undefined}
                       <span class={categoryClass(item.category)}>
-                        {item.category}
+                        {categoryRepr(item.category)}
                       </span>
                     {:else}
                       <span class="muted">—</span>
@@ -300,7 +584,7 @@
                         title="Zobrazit v databázi NCBI ClinVar (ID {item.clinvar_id})"
                       >
                         ClinVar {item.clinvar_classification !== null
-                          ? item.clinvar_classification
+                          ? categoryRepr(item.clinvar_classification)
                           : 'VCV'}
                       </a>
                     {:else}
@@ -467,6 +751,121 @@
   }
 
   /* Mid Section Grid */
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .selection-summary-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(63, 111, 116, 0.08);
+    border: 1px solid rgba(63, 111, 116, 0.25);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: var(--teal);
+  }
+
+  .selection-summary-badge.has-filter {
+    background: rgba(201, 107, 60, 0.12);
+    border-color: rgba(201, 107, 60, 0.35);
+    color: #b3411f;
+  }
+
+  .summary-count strong {
+    font-weight: 700;
+  }
+
+  .summary-pct {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+  }
+
+  /* Category Filter Toolbar */
+  .category-filter-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    background: rgba(0, 0, 0, 0.025);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px 12px;
+  }
+
+  .filter-label {
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+
+  .filter-chips-list {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .filter-chip-btn {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.15s ease;
+  }
+
+  .filter-chip-btn:hover {
+    border-color: var(--teal);
+    color: var(--teal);
+  }
+
+  .filter-chip-btn.active {
+    background: var(--teal);
+    color: #fff;
+    border-color: var(--teal);
+    font-weight: 600;
+  }
+
+  .filter-chip-btn.chip-action-exclude {
+    background: #fff;
+    border-color: rgba(201, 107, 60, 0.35);
+    color: #b3411f;
+    font-weight: 600;
+  }
+
+  .filter-chip-btn.chip-action-exclude:hover {
+    background: rgba(201, 107, 60, 0.12);
+  }
+
+  .filter-chip-btn.chip-action-exclude.active {
+    background: #b3411f;
+    color: #fff;
+    border-color: #b3411f;
+  }
+
+  .filter-chip-btn.text-btn {
+    background: transparent;
+    border-color: transparent;
+    color: var(--ink-soft);
+    font-size: 11.5px;
+  }
+
+  .filter-chip-btn.text-btn:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+
   .analytics-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
@@ -481,12 +880,27 @@
 
   /* Proportional Distribution Bar */
   .distribution-bar {
-    height: 14px;
+    height: 16px;
     border-radius: 999px;
     overflow: hidden;
     display: flex;
     background: rgba(0, 0, 0, 0.06);
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .distribution-bar.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px dashed var(--line);
+    box-shadow: none;
+  }
+
+  .empty-bar-text {
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    font-style: italic;
   }
 
   .distribution-segment {
@@ -545,6 +959,34 @@
     background: rgba(255, 255, 255, 0.7);
     border: 1px solid var(--line);
     font-size: 13.5px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+  }
+
+  .category-item:hover {
+    background: #fff;
+    border-color: rgba(63, 111, 116, 0.4);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  .category-item.deselected {
+    opacity: 0.42;
+    background: rgba(0, 0, 0, 0.015);
+    border-style: dashed;
+  }
+
+  .category-item.deselected:hover {
+    opacity: 0.75;
+  }
+
+  .category-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--teal);
+    border-radius: 4px;
+    flex-shrink: 0;
   }
 
   .category-badge-wrap {
@@ -569,12 +1011,60 @@
     font-size: 13px;
   }
 
+  .category-pct-group {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 95px;
+    justify-content: flex-end;
+  }
+
   .category-pct {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 12.5px;
-    color: var(--ink-soft);
-    min-width: 45px;
+    font-weight: 600;
+    color: var(--teal);
     text-align: right;
+  }
+
+  .category-pct.strike {
+    color: var(--ink-soft);
+    font-weight: normal;
+  }
+
+  .category-pct-global {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+
+  /* Recurrent Table Filter Toggle */
+  .recurrent-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .filter-switch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--ink);
+    cursor: pointer;
+    background: rgba(63, 111, 116, 0.06);
+    border: 1px solid rgba(63, 111, 116, 0.2);
+    padding: 4px 10px;
+    border-radius: 999px;
+    transition: all 0.15s ease;
+  }
+
+  .filter-switch-label:hover {
+    background: rgba(63, 111, 116, 0.12);
+  }
+
+  .filter-switch-label input {
+    accent-color: var(--teal);
+    cursor: pointer;
   }
 
   .zygosity-section {

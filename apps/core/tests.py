@@ -1,11 +1,15 @@
 import json
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 
 class AuthFlowTests(TestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
     def test_status_is_unauthenticated_by_default(self):
         response = self.client.get(reverse("auth_status"))
         self.assertEqual(response.status_code, 200)
@@ -56,10 +60,136 @@ class AuthFlowTests(TestCase):
         self.assertEqual(logout_response.status_code, 200)
         self.assertFalse(logout_response.json()["authenticated"])
 
+    def test_register_rejects_weak_passwords(self):
+        # Short / entirely numeric password
+        response = self.client.post(
+            reverse("register_view"),
+            data=json.dumps(
+                {
+                    "email": "weak@example.com",
+                    "username": "weakuser",
+                    "password": "123",
+                    "password_confirm": "123",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        error_msg = response.json().get("error", "")
+        self.assertIn("krátké", error_msg)
+        self.assertIn("čísel", error_msg)
+        self.assertFalse(get_user_model().objects.filter(email="weak@example.com").exists())
+
+    def test_register_rejects_password_similar_to_username(self):
+        response = self.client.post(
+            reverse("register_view"),
+            data=json.dumps(
+                {
+                    "email": "doctor1@example.com",
+                    "username": "superdoctor",
+                    "password": "superdoctor2026!",
+                    "password_confirm": "superdoctor2026!",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        error_msg = response.json().get("error", "")
+        self.assertIn("podobné", error_msg)
+        self.assertIn("uživatelskému jménu", error_msg)
+
+    @override_settings(REQUIRE_ACCOUNT_APPROVAL=True)
+    def test_register_with_account_approval_required(self):
+        response = self.client.post(
+            reverse("register_view"),
+            data=json.dumps(
+                {
+                    "email": "pending@example.com",
+                    "username": "pendinguser",
+                    "password": "StrongPass123!",
+                    "password_confirm": "StrongPass123!",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertFalse(payload["authenticated"])
+        self.assertTrue(payload.get("pending_approval"))
+        self.assertIn("schválení", payload.get("message", ""))
+
+        user = get_user_model().objects.get(email="pending@example.com")
+        self.assertFalse(user.is_active)
+
+    def test_login_inactive_user_shows_approval_pending(self):
+        user = get_user_model().objects.create_user(
+            email="inactive@example.com",
+            username="inactiveuser",
+            password="StrongPass123!",
+            is_active=False,
+        )
+
+        response = self.client.post(
+            reverse("login_view"),
+            data=json.dumps({"email": user.email, "password": "StrongPass123!"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("schválení", response.json().get("error", ""))
+
+    def test_login_rate_limiting(self):
+        for _ in range(5):
+            res = self.client.post(
+                reverse("login_view"),
+                data=json.dumps({"email": "attacker@example.com", "password": "WrongPassword!"}),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 400)
+
+        # 6th attempt should be rate limited
+        blocked_res = self.client.post(
+            reverse("login_view"),
+            data=json.dumps({"email": "attacker@example.com", "password": "WrongPassword!"}),
+            content_type="application/json",
+        )
+        self.assertEqual(blocked_res.status_code, 429)
+        self.assertIn("error", blocked_res.json())
+
+    def test_register_rate_limiting(self):
+        for i in range(10):
+            res = self.client.post(
+                reverse("register_view"),
+                data=json.dumps(
+                    {
+                        "email": f"user{i}@example.com",
+                        "username": f"user{i}",
+                        "password": "StrongPass123!",
+                        "password_confirm": "StrongPass123!",
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 201)
+
+        # 11th registration attempt from the same IP should be rate limited
+        blocked_res = self.client.post(
+            reverse("register_view"),
+            data=json.dumps(
+                {
+                    "email": "user11@example.com",
+                    "username": "user11",
+                    "password": "StrongPass123!",
+                    "password_confirm": "StrongPass123!",
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(blocked_res.status_code, 429)
+        self.assertIn("error", blocked_res.json())
+
 
 class InitDBCacheTests(TestCase):
     def test_import_caches_clear(self):
-        import polars as pl
         from apps.core.management.commands.init_db import ImportCaches
         from apps.core.models import Patient
 
@@ -75,7 +205,7 @@ class InitDBCacheTests(TestCase):
 
     def test_parse_df_clears_caches_after_execution(self):
         import polars as pl
-        from apps.core.management.commands.init_db import parse_df, ImportCaches
+        from apps.core.management.commands.init_db import parse_df
         from apps.core.models import Patient, GeneVariant
 
         df = pl.DataFrame(
