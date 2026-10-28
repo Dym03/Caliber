@@ -40,10 +40,11 @@
   let isSearching = $state(false);
   let errorMessage = $state('');
 
-  let results = $state<Variant[]>([]);
-  let meta = $state<PaginationMeta | null>(null);
-  let currentPage = $state(1);
-  let currentView = $state<'registry' | 'batch' | 'dashboard'>('registry');
+  let results = $state<Variant[]>([])
+  let meta = $state<PaginationMeta | null>(null)
+  let currentPage = $state(1)
+  let currentSort = $state('genomic')
+  let currentView = $state<'registry' | 'batch' | 'dashboard'>('registry')
 
   let sessionState = $state<SessionState>('loading');
   let currentUser = $state<AuthUser | null>(null);
@@ -179,14 +180,14 @@
     errorMessage = '';
     currentPage = page;
 
-    const params = new URLSearchParams({
-      variant: variantQuery.trim(),
-      gene: geneQuery.trim(),
-      dbsnp: dbsnpQuery.trim(),
-      patient_id: patientIdQuery.trim(),
-      page: String(page),
-      per_page: '50',
-    });
+    const params = new URLSearchParams()
+    if (variantQuery.trim()) params.set('variant', variantQuery.trim())
+    if (geneQuery.trim()) params.set('gene', geneQuery.trim())
+    if (dbsnpQuery.trim()) params.set('dbsnp', dbsnpQuery.trim())
+    if (patientIdQuery.trim()) params.set('patient_id', patientIdQuery.trim())
+    if (currentSort) params.set('sort', currentSort)
+    params.set('page', String(page))
+    params.set('per_page', '20')
 
     if (
       ![
@@ -248,7 +249,12 @@
     runSearch(targetPage);
   };
 
-  onMount(loadSession);
+  const handleSortChange = (newSort: string) => {
+    currentSort = newSort
+    runSearch(1)
+  }
+
+  onMount(loadSession)
 </script>
 
 {#if sessionState === 'loading'}
@@ -294,8 +300,10 @@
         <ResultsTable
           {results}
           {meta}
+          {currentSort}
           onrefresh={() => runSearch(currentPage)}
           onpagechange={handlePageChange}
+          onsortchange={handleSortChange}
           ondeleted={handleItemDeleted}
         />
       </section>

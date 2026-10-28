@@ -10,7 +10,7 @@ from apps.core.management.commands.init_db import parse_df
 import fastexcel
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
-from django.db.models import Q, Subquery, OuterRef
+from django.db.models import Q, Subquery, OuterRef, Prefetch, Count, Max
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 from apps.core.models import (
     Gene,
@@ -38,6 +38,7 @@ def query_variants(
     page_number: int | str,
     per_page: int | str,
     patient_id: str = "",
+    sort_by: str = "genomic",
 ) -> dict:
     gene_id = None
     if gene:
@@ -49,10 +50,15 @@ def query_variants(
         if not gene_id:
             return {
                 "results": [],
-                "meta": {"has_next": False, "total_count": 0, "total_pages": 0},
+                "meta": {
+                    "has_next": False,
+                    "total_count": 0,
+                    "total_pages": 0,
+                    "current_page": 1,
+                },
             }
 
-    # 2. Sestavení filtrů pro klinickou DB
+    # 1. Build patient records filters
     patient_filters = Q()
     if gene_id:
         patient_filters &= Q(variant__genes__id=gene_id)
@@ -66,27 +72,47 @@ def query_variants(
             | Q(reported_hgvs_c__iexact=variant)
         )
     if patient_id:
-        patient_filters &= Q(report__patient__name__iexact=patient_id)
+        clean_pid = patient_id.strip()
+        patient_filters &= Q(report__patient__name__iexact=clean_pid)
 
-    patient_queryset = (
-        PatientVariant.objects.select_related(
-            "variant",
-            "variant__clinvar_entry",
-            "report",
-            "report__patient",
-            "report__created_by",
-        )
-        .prefetch_related("variant__annotations", "variant__genes")
-        .filter(patient_filters)
+    # 2. Extract clinical GeneVariant IDs
+    variant_ids_qs = (
+        PatientVariant.objects.filter(patient_filters)
+        .values_list("variant_id", flat=True)
         .distinct()
-        .order_by("-report__updated_at")
     )
 
     is_fallback = False
-    target_queryset = patient_queryset
+    if variant_ids_qs.exists():
+        patient_prefetch = Prefetch(
+            "patientvariant_set",
+            queryset=PatientVariant.objects.select_related(
+                "report", "report__patient", "report__created_by"
+            )
+            .annotate(report_variants_count=Count("report__variants"))
+            .order_by("-report__updated_at", "-report__created_at", "-id"),
+            to_attr="prefetched_patient_variants",
+        )
 
-    # 3. Fallback na globální ClinVar katalog, pokud lokální záznamy nic nenašly a nehledá se podle pacienta
-    if not patient_queryset.exists() and not patient_id:
+        target_queryset = (
+            GeneVariant.objects.filter(id__in=variant_ids_qs)
+            .select_related("clinvar_entry")
+            .prefetch_related("genes", "annotations", patient_prefetch)
+        )
+
+        if sort_by == "patients":
+            target_queryset = target_queryset.annotate(
+                num_patients=Count("patientvariant__report__patient", distinct=True)
+            ).order_by("-num_patients", "chromosome", "position", "id")
+        elif sort_by == "latest":
+            target_queryset = target_queryset.annotate(
+                max_updated=Max("patientvariant__report__updated_at")
+            ).order_by("-max_updated", "chromosome", "position", "id")
+        else:
+            target_queryset = target_queryset.order_by("chromosome", "position", "id")
+
+    elif not patient_id:
+        # Fallback to ClinVar catalog when searching globally (not by patient) and no internal matches
         is_fallback = True
         global_filters = Q()
         if gene_id:
@@ -105,10 +131,12 @@ def query_variants(
             .prefetch_related("annotations", "genes")
             .filter(global_filters)
             .distinct()
-            .order_by("chromosome", "position")
+            .order_by("chromosome", "position", "id")
         )
+    else:
+        target_queryset = GeneVariant.objects.none()
 
-    # 4. Spuštění Paginatoru
+    # 3. Paginator
     paginator = Paginator(target_queryset, per_page)
     try:
         page_obj = paginator.page(page_number)
@@ -119,16 +147,19 @@ def query_variants(
             "results": [],
             "meta": {
                 "has_next": False,
+                "has_previous": False,
                 "total_count": paginator.count,
                 "total_pages": paginator.num_pages,
+                "current_page": 1,
+                "is_fallback": is_fallback,
             },
         }
 
-    # 5. Serializace datové struktury
+    # 4. Serialize variant-centric results with nested patient observations and history
     results = []
-    for item in page_obj:
-        var_obj = item.variant if not is_fallback else item
+    clean_search_pid = patient_id.strip().lower()
 
+    for var_obj in page_obj:
         transcripts = [
             f"{a.transcript_base or ''}.{a.transcript_version or ''}:{a.hgvs_c}".strip(
                 ".:"
@@ -136,6 +167,7 @@ def query_variants(
             for a in var_obj.annotations.all()
         ]
         gene_symbols = [g.symbol for g in var_obj.genes.all()]
+        gene_repr = ", ".join(gene_symbols) if gene_symbols else "Intergenic"
 
         clinvar_entry = getattr(var_obj, "clinvar_entry", None)
         clinvar_data = None
@@ -143,56 +175,179 @@ def query_variants(
             clinvar_data = {
                 "id": clinvar_entry.clinvar_id,
                 "score": clinvar_entry.clinvar_classification,
-                "last_updated": clinvar_entry.last_updated.isoformat()
-                if clinvar_entry.last_updated
-                else None,
+                "last_updated": (
+                    clinvar_entry.last_updated.isoformat()
+                    if clinvar_entry.last_updated
+                    else None
+                ),
             }
 
         if not is_fallback:
-            creator = item.report.created_by
-            created_by_user = creator.username if creator else "System"
+            pvs = getattr(var_obj, "prefetched_patient_variants", [])
+
+            # Group observations by patient name to avoid duplicates and build evaluation history
+            patients_map = defaultdict(list)
+            for pv in pvs:
+                p_name = pv.report.patient.name
+                creator = pv.report.created_by
+                creator_username = creator.username if creator else "System"
+                report_variants_count = getattr(pv, "report_variants_count", 0)
+                updated_iso = (pv.report.updated_at or pv.report.created_at).isoformat()
+
+                patients_map[p_name].append(
+                    {
+                        "patient_variant_id": pv.id,
+                        "patient_id": p_name,
+                        "category": pv.category if pv.category is not None else None,
+                        "zygosity": pv.zygosity or "",
+                        "comment": pv.comment or "",
+                        "reported_hgvs_c": pv.reported_hgvs_c or "",
+                        "report_id": pv.report.id,
+                        "report_name": pv.report.report_name
+                        or f"Report #{pv.report.id}",
+                        "report_variants_count": report_variants_count,
+                        "created_by": creator_username,
+                        "updated_at": updated_iso,
+                    }
+                )
+
+            unique_patients = []
+            for p_name, obs_list in patients_map.items():
+                latest_obs = obs_list[0]
+                history = obs_list[1:] if len(obs_list) > 1 else []
+                is_searched = bool(
+                    clean_search_pid
+                    and (
+                        clean_search_pid == p_name.strip().lower()
+                        or clean_search_pid in p_name.strip().lower()
+                    )
+                )
+
+                unique_patients.append(
+                    {
+                        **latest_obs,
+                        "is_searched_patient": is_searched,
+                        "history": history,
+                        "history_count": len(history),
+                    }
+                )
+
+            # Sort patients: searched patient is pinned at the top, others ordered by recent date
+            if clean_search_pid:
+                unique_patients.sort(
+                    key=lambda p: (
+                        not (p["patient_id"].strip().lower() == clean_search_pid),
+                        not p["is_searched_patient"],
+                        p["patient_id"],
+                    )
+                )
+            else:
+                unique_patients.sort(key=lambda p: p["updated_at"], reverse=True)
+
+            latest_overall = pvs[0] if pvs else None
+            latest_cat = (
+                latest_overall.category
+                if latest_overall and latest_overall.category is not None
+                else None
+            )
+            latest_updated = (
+                (
+                    latest_overall.report.updated_at or latest_overall.report.created_at
+                ).isoformat()
+                if latest_overall
+                else None
+            )
+
+            valid_cats = [
+                p["category"] for p in unique_patients if p["category"] is not None
+            ]
+            unique_cat_set = set(valid_cats)
+            has_conflicting = len(unique_cat_set) > 1
+            cat_summary = (
+                f"{min(unique_cat_set):g} – {max(unique_cat_set):g}"
+                if has_conflicting
+                else (f"{next(iter(unique_cat_set)):g}" if unique_cat_set else None)
+            )
+
+            primary_hgvs = (
+                unique_patients[0]["reported_hgvs_c"]
+                if unique_patients and unique_patients[0]["reported_hgvs_c"]
+                else (transcripts[0] if transcripts else "")
+            )
+
+            first_patient = unique_patients[0] if unique_patients else None
+
             results.append(
                 {
                     "source": "clinic",
-                    "patient_variant_id": item.id,
-                    "report_id": item.report.id,
-                    "report_name": item.report.report_name
-                    or f"Report #{item.report.id}",
-                    "report_variants_count": item.report.variants.count(),
-                    "patient_id": item.report.patient.name,
-                    "created_by": created_by_user,
-                    "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
+                    "variant_id": var_obj.id,
+                    "gene": gene_repr,
                     "all_genes": gene_symbols,
-                    "variant": item.reported_hgvs_c
-                    or (transcripts[0] if transcripts else ""),
+                    "variant": primary_hgvs,
                     "all_transcripts": transcripts,
-                    "dbsnp": var_obj.dbsnp,
-                    "gnomAD": var_obj.gnomAD,
-                    "chromosome": var_obj.chromosome,
+                    "dbsnp": var_obj.dbsnp or "",
+                    "gnomAD": var_obj.gnomAD or "",
+                    "chromosome": var_obj.chromosome or "",
                     "position": var_obj.position,
-                    "updated_at": item.report.updated_at.isoformat(),
-                    "category": item.category if item.category is not None else None,
                     "clinvar": clinvar_data,
-                    "comment": item.comment or None,
+                    # Variant summary fields
+                    "patients_count": len(unique_patients),
+                    "total_observations": len(pvs),
+                    "latest_category": latest_cat,
+                    "latest_updated_at": latest_updated,
+                    "has_conflicting_categories": has_conflicting,
+                    "categories_summary": cat_summary,
+                    "patients": unique_patients,
+                    # Compatibility fields for legacy consumers / tests
+                    "patient_id": first_patient["patient_id"] if first_patient else "-",
+                    "patient_variant_id": first_patient["patient_variant_id"]
+                    if first_patient
+                    else None,
+                    "report_id": first_patient["report_id"] if first_patient else None,
+                    "report_name": first_patient["report_name"]
+                    if first_patient
+                    else "",
+                    "report_variants_count": first_patient["report_variants_count"]
+                    if first_patient
+                    else 0,
+                    "category": latest_cat,
+                    "updated_at": latest_updated,
+                    "created_by": first_patient["created_by"]
+                    if first_patient
+                    else "System",
+                    "comment": first_patient["comment"] if first_patient else "",
                 }
             )
         else:
             results.append(
                 {
                     "source": "clinvar_catalog",
-                    "patient_id": "-",
-                    "created_by": "-",
-                    "gene": ", ".join(gene_symbols) if gene_symbols else "Intergenic",
+                    "variant_id": var_obj.id,
+                    "gene": gene_repr,
                     "all_genes": gene_symbols,
                     "variant": transcripts[0] if transcripts else "Unknown Transcript",
                     "all_transcripts": transcripts,
-                    "dbsnp": var_obj.dbsnp,
-                    "gnomAD": var_obj.gnomAD,
-                    "chromosome": var_obj.chromosome,
+                    "dbsnp": var_obj.dbsnp or "",
+                    "gnomAD": var_obj.gnomAD or "",
+                    "chromosome": var_obj.chromosome or "",
                     "position": var_obj.position,
-                    "updated_at": None,
-                    "category": "N/A",
                     "clinvar": clinvar_data,
+                    "patients_count": 0,
+                    "total_observations": 0,
+                    "latest_category": None,
+                    "latest_updated_at": None,
+                    "has_conflicting_categories": False,
+                    "categories_summary": None,
+                    "patients": [],
+                    # Compatibility fields
+                    "patient_id": "-",
+                    "patient_variant_id": None,
+                    "report_id": None,
+                    "report_name": "",
+                    "report_variants_count": 0,
+                    "category": "N/A",
+                    "updated_at": None,
+                    "created_by": "-",
                     "comment": "Found in reference database only.",
                 }
             )

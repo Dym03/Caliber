@@ -44,8 +44,9 @@ def search_variants(request):
     gene = request.GET.get("gene", "").strip()
     dbsnp = request.GET.get("dbsnp", "").strip()
     patient_id = request.GET.get("patient_id", "").strip()
+    sort_by = request.GET.get("sort", "genomic").strip()
     page_number = request.GET.get("page", 1)
-    per_page = request.GET.get("per_page", 50)
+    per_page = request.GET.get("per_page", 20)
 
     if not (variant or gene or dbsnp or patient_id):
         return JsonResponse(
@@ -54,7 +55,13 @@ def search_variants(request):
 
     try:
         response_data = query_variants(
-            variant, gene, dbsnp, page_number, per_page, patient_id=patient_id
+            variant,
+            gene,
+            dbsnp,
+            page_number,
+            per_page,
+            patient_id=patient_id,
+            sort_by=sort_by,
         )
         return JsonResponse(response_data)
     except Exception as e:
