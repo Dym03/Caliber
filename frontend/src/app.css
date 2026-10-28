@@ -675,13 +675,15 @@ input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 10px;
+  padding: 5px 12px;
+  min-width: 38px;
   border-radius: 999px;
   border: 1px solid transparent;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: black;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .category.c0 {
@@ -1497,7 +1499,7 @@ input {
 
 .table-header-row {
   display: grid;
-  grid-template-columns: 32px 1fr 1.6fr 1fr 1.1fr 1.1fr 1.2fr 0.9fr 80px;
+  grid-template-columns: 32px 0.9fr minmax(0, 1.8fr) minmax(0, 1.1fr) 1.1fr 1.1fr 1.2fr 0.9fr 80px;
   gap: 12px;
   align-items: center;
   padding: 10px 16px;
@@ -1507,6 +1509,11 @@ input {
   color: var(--ink-soft);
   font-weight: 600;
   min-width: 1050px;
+}
+
+.table-header-row > *,
+.variant-summary-row > * {
+  min-width: 0;
 }
 
 .variant-item-card {
@@ -1531,7 +1538,7 @@ input {
 
 .variant-summary-row {
   display: grid;
-  grid-template-columns: 32px 1fr 1.6fr 1fr 1.1fr 1.1fr 1.2fr 0.9fr 80px;
+  grid-template-columns: 32px 0.9fr minmax(0, 1.8fr) minmax(0, 1.1fr) 1.1fr 1.1fr 1.2fr 0.9fr 80px;
   gap: 12px;
   align-items: center;
   padding: 14px 16px;
@@ -1594,6 +1601,59 @@ input {
   font-size: 12px;
   padding: 5px 10px;
   border-radius: 8px;
+}
+
+.col-variant,
+.col-dbsnp {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hgvs-code-text,
+.dbsnp-code-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.copy-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.copy-pill-btn:hover {
+  background: var(--surface);
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+.copy-pill-btn.copied {
+  background: rgba(92, 214, 154, 0.25);
+  border-color: rgba(92, 214, 154, 0.6);
+  color: #1b7a43;
+}
+
+.copy-btn-inline {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 6px;
 }
 
 /* Level 2: Nested Patients */
@@ -1793,6 +1853,108 @@ input {
   align-items: baseline;
   gap: 10px;
   font-size: 14px;
+}
+
+.modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal-title-row h3 {
+  margin: 0;
+}
+
+.edit-category-row {
+  align-items: center;
+}
+
+.category-edit-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-edit-cat {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--teal);
+  border: 1px solid rgba(63, 111, 116, 0.3);
+  cursor: pointer;
+}
+
+.btn-edit-cat:hover {
+  background: rgba(63, 111, 116, 0.08);
+}
+
+.category-dropdown-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+
+.category-select {
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  outline: none;
+}
+
+.category-select:focus {
+  border-color: var(--teal);
+}
+
+.btn-save-cat {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-save-cat:hover:not(:disabled) {
+  background: #31585c;
+}
+
+.btn-cancel-cat {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.category-success-note {
+  font-size: 12.5px;
+  color: #1b7a43;
+  background: rgba(92, 214, 154, 0.15);
+  border: 1px solid rgba(92, 214, 154, 0.3);
+  padding: 4px 10px;
+  border-radius: 6px;
+  align-self: flex-start;
+}
+
+.category-error-note {
+  font-size: 12.5px;
+  color: #b51414;
+  background: rgba(237, 57, 57, 0.15);
+  border: 1px solid rgba(237, 57, 57, 0.3);
+  padding: 4px 10px;
+  border-radius: 6px;
+  align-self: flex-start;
 }
 
 .modal-sub {

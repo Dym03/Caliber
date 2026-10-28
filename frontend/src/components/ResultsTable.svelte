@@ -2,12 +2,18 @@
   import VariantModal from './VariantModal.svelte';
   import type { Variant, PatientObservation } from '../types/variant';
   import type { PaginationMeta } from '../types/pagination';
-  import { categoryClass, clinvarVariantUrl, categoryRepr } from '../lib/utils';
+  import { categoryClass, clinvarVariantUrl, categoryRepr, formatDate } from '../lib/utils';
 
   interface Props {
     results: Variant[]
     meta: PaginationMeta | null
     currentSort?: string
+    currentUser?: {
+      email?: string
+      username?: string
+      is_staff?: boolean
+      is_superuser?: boolean
+    } | null
     onrefresh: () => void
     onpagechange: (page: number) => void
     onsortchange?: (sort: string) => void
@@ -18,6 +24,7 @@
     results, 
     meta, 
     currentSort = 'genomic',
+    currentUser = null,
     onrefresh, 
     onpagechange, 
     onsortchange, 
@@ -31,6 +38,35 @@
   let userToggles = $state<Record<string, boolean>>({});
   // Set of expanded patient history IDs
   let expandedHistories = $state<Record<number, boolean>>({});
+
+  let copiedKey = $state<string | null>(null);
+  let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const copyText = async (text: string, key: string, e: MouseEvent) => {
+    e.stopPropagation();
+    if (!text || text === '—') return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.style.position = 'fixed';
+        el.style.opacity = '0';
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+      copiedKey = key;
+      if (copyTimer) clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => {
+        copiedKey = null;
+      }, 1500);
+    } catch (err) {
+      console.error('Kopírování selhalo', err);
+    }
+  };
 
   const getVariantKey = (v: Variant, index: number): string => {
     return v.variant_id ? String(v.variant_id) : `${v.chromosome}-${v.position}-${v.variant}-${index}`;
@@ -63,16 +99,6 @@
   const closeModal = () => {
     selectedVariant = null;
     selectedPatient = null;
-  };
-
-  const formatDate = (value: string | null | undefined) => {
-    if (!value) return '—';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '—';
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear());
-    return `${day}-${month}-${year}`;
   };
 
   const handleSortSelect = (e: Event) => {
@@ -154,15 +180,55 @@
             </div>
 
             <div class="col-variant">
-              <span class="selectable mono bold" title={item.variant || ''}>
+              <span class="selectable mono bold hgvs-code-text" title={item.variant || ''}>
                 {item.variant || '—'}
               </span>
+              {#if item.variant && item.variant !== '—'}
+                <button
+                  type="button"
+                  class="copy-pill-btn {copiedKey === 'var-' + index ? 'copied' : ''}"
+                  onclick={(e) => copyText(item.variant, 'var-' + index, e)}
+                  title="Kopírovat HGVS kód"
+                  aria-label="Kopírovat HGVS kód"
+                >
+                  {#if copiedKey === 'var-' + index}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  {:else}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  {/if}
+                </button>
+              {/if}
             </div>
 
             <div class="col-dbsnp">
-              <span class="selectable mono muted" title={item.dbsnp || ''}>
+              <span class="selectable mono muted dbsnp-code-text" title={item.dbsnp || ''}>
                 {item.dbsnp || '—'}
               </span>
+              {#if item.dbsnp && item.dbsnp !== '—'}
+                <button
+                  type="button"
+                  class="copy-pill-btn {copiedKey === 'dbsnp-' + index ? 'copied' : ''}"
+                  onclick={(e) => copyText(item.dbsnp, 'dbsnp-' + index, e)}
+                  title="Kopírovat dbSNP kód"
+                  aria-label="Kopírovat dbSNP kód"
+                >
+                  {#if copiedKey === 'dbsnp-' + index}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  {:else}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  {/if}
+                </button>
+              {/if}
             </div>
 
             <div class="col-coord">
@@ -382,7 +448,23 @@
   <VariantModal
     variant={selectedVariant}
     patient={selectedPatient}
+    {currentUser}
     onclose={closeModal}
+    onupdated={(detail) => {
+      if (selectedPatient && selectedPatient.patient_variant_id === detail.patientVariantId) {
+        selectedPatient.category = detail.category;
+      }
+      for (const res of results) {
+        if (res.patients) {
+          const p = res.patients.find(pt => pt.patient_variant_id === detail.patientVariantId);
+          if (p) {
+            p.category = detail.category;
+            res.latest_category = detail.category;
+          }
+        }
+      }
+      onrefresh();
+    }}
     ondeleted={(detail) => {
       ondeleted?.(detail);
       onrefresh();

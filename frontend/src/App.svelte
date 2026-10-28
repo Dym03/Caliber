@@ -7,7 +7,7 @@
   import ResultsTable from './components/ResultsTable.svelte';
   import VariantClassifier from './components/VariantClassifier.svelte';
   import Dashboard from './components/Dashboard.svelte';
-  import { apiUrl } from './lib/api';
+  import { apiUrl, getCookie } from './lib/api';
 
   import type { Variant } from './types/variant';
   import type { PaginationMeta } from './types/pagination';
@@ -28,6 +28,8 @@
     authenticated: boolean;
     user: AuthUser | null;
     error?: string;
+    pending_approval?: boolean;
+    message?: string;
   };
 
   type AuthMode = 'login' | 'register';
@@ -56,12 +58,6 @@
   let authMessage = $state('');
   let authError = $state('');
   let authSubmitting = $state(false);
-
-  const csrfToken = () => {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; csrftoken=`);
-    return parts.length === 2 ? parts.pop()?.split(';').shift() || '' : '';
-  };
 
   const clearSearch = () => {
     variantQuery = '';
@@ -136,7 +132,7 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken(),
+          'X-CSRFToken': getCookie('csrftoken'),
         },
         body: JSON.stringify(payload),
       });
@@ -144,6 +140,14 @@
       const data = (await response.json().catch(() => ({}))) as AuthResponse;
       if (!response.ok) {
         throw new Error(data.error || 'Přihlášení se nezdařilo.');
+      }
+
+      if (data.pending_approval) {
+        authMode = 'login';
+        authPassword = '';
+        authPasswordConfirm = '';
+        authMessage = data.message || 'Účet byl úspěšně vytvořen a čeká na schválení administrátorem.';
+        return;
       }
 
       setAuthenticatedUser(
@@ -163,7 +167,7 @@
       await fetch(apiUrl('/auth/logout/'), {
         method: 'POST',
         headers: {
-          'X-CSRFToken': csrfToken(),
+          'X-CSRFToken': getCookie('csrftoken'),
         },
       });
     } finally {
@@ -301,6 +305,7 @@
           {results}
           {meta}
           {currentSort}
+          {currentUser}
           onrefresh={() => runSearch(currentPage)}
           onpagechange={handlePageChange}
           onsortchange={handleSortChange}

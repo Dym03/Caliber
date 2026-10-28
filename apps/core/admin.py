@@ -2,6 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import ReadOnlyPasswordHashField
+from django.contrib.auth.password_validation import validate_password
 
 from .models import (
     User,
@@ -28,7 +29,9 @@ class UserCreationForm(forms.ModelForm):
         password1 = self.cleaned_data.get("password1")
         password2 = self.cleaned_data.get("password2")
         if password1 and password2 and password1 != password2:
-            raise forms.ValidationError("Passwords do not match.")
+            raise forms.ValidationError("Zadaná hesla se neshodují.")
+        if password1:
+            validate_password(password1, self.instance)
         return password2
 
     def save(self, commit=True):
@@ -59,7 +62,8 @@ class UserAdmin(BaseUserAdmin):
     form = UserChangeForm
     add_form = UserCreationForm
 
-    list_display = ("email", "username", "is_staff", "is_superuser")
+    list_display = ("email", "username", "is_active", "is_staff", "is_superuser")
+    list_editable = ("is_active",)
     list_filter = ("is_staff", "is_superuser", "is_active")
     ordering = ("email",)
     search_fields = ("email", "username")

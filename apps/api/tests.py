@@ -1,3 +1,4 @@
+import json
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -9,6 +10,7 @@ from apps.core.models import (
     Patient,
     GeneticReport,
     PatientVariant,
+    User,
 )
 
 
@@ -154,6 +156,62 @@ class SearchVariantsTests(TestCase):
         # Last variant in report was deleted, so report and patient should also be cleaned up
         self.assertFalse(GeneticReport.objects.filter(id=rep.id).exists())
         self.assertFalse(Patient.objects.filter(id=pat.id).exists())
+
+    def test_update_patient_variant_category(self):
+        pat = Patient.objects.create(name="PAC-EDIT")
+        rep = GeneticReport.objects.create(
+            patient=pat,
+            created_by=self.user,
+            report_name="edit_test.xlsx",
+        )
+        variant = GeneVariant.objects.first()
+        pv = PatientVariant.objects.create(
+            report=rep,
+            variant=variant,
+            category=3.0,
+            comment="Initial VUS",
+        )
+
+        # 1. Non-creator non-staff user gets 403 Forbidden
+        other_user = User.objects.create_user(
+            email="other@test.cz", username="other_user", password="password"
+        )
+        self.client.force_login(other_user)
+        response_forbidden = self.client.patch(
+            reverse("delete_patient_variant", args=[pv.id]),
+            data=json.dumps({"category": 4.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(response_forbidden.status_code, 403)
+
+        # 2. Creator can update (200 OK)
+        self.client.force_login(self.user)
+        response = self.client.patch(
+            reverse("delete_patient_variant", args=[pv.id]),
+            data=json.dumps({"category": 5.0, "comment": "Updated to Pathogenic"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        pv.refresh_from_db()
+        self.assertEqual(pv.category, 5.0)
+        self.assertEqual(pv.comment, "Updated to Pathogenic")
+
+        # 3. Staff user (even if not creator) can update (200 OK)
+        staff_user = User.objects.create_user(
+            email="staff@test.cz",
+            username="staff_user",
+            password="password",
+            is_staff=True,
+        )
+        self.client.force_login(staff_user)
+        response_staff = self.client.patch(
+            reverse("delete_patient_variant", args=[pv.id]),
+            data=json.dumps({"category": 4.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(response_staff.status_code, 200)
+        pv.refresh_from_db()
+        self.assertEqual(pv.category, 4.0)
 
     def test_delete_genetic_report(self):
         pat = Patient.objects.create(name="PAC-REP-DEL")

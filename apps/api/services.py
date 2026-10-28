@@ -18,7 +18,6 @@ from apps.core.models import (
     PatientVariant,
     User,
     GeneticReport,
-    Patient,
 )
 from apps.core.enums import ClassificationEnum
 from apps.core.management.commands.init_db import (
@@ -39,6 +38,7 @@ def query_variants(
     per_page: int | str,
     patient_id: str = "",
     sort_by: str = "genomic",
+    user: User | None = None,
 ) -> dict:
     gene_id = None
     if gene:
@@ -193,6 +193,15 @@ def query_variants(
                 creator_username = creator.username if creator else "System"
                 report_variants_count = getattr(pv, "report_variants_count", 0)
                 updated_iso = (pv.report.updated_at or pv.report.created_at).isoformat()
+                can_edit = bool(
+                    user
+                    and user.is_authenticated
+                    and (
+                        user.is_staff
+                        or user.is_superuser
+                        or (creator and creator == user)
+                    )
+                )
 
                 patients_map[p_name].append(
                     {
@@ -208,6 +217,8 @@ def query_variants(
                         "report_variants_count": report_variants_count,
                         "created_by": creator_username,
                         "updated_at": updated_iso,
+                        "can_edit": can_edit,
+                        "can_delete": can_edit,
                     }
                 )
 
@@ -216,11 +227,7 @@ def query_variants(
                 latest_obs = obs_list[0]
                 history = obs_list[1:] if len(obs_list) > 1 else []
                 is_searched = bool(
-                    clean_search_pid
-                    and (
-                        clean_search_pid == p_name.strip().lower()
-                        or clean_search_pid in p_name.strip().lower()
-                    )
+                    clean_search_pid and clean_search_pid == p_name.strip().lower()
                 )
 
                 unique_patients.append(
@@ -316,6 +323,12 @@ def query_variants(
                     if first_patient
                     else "System",
                     "comment": first_patient["comment"] if first_patient else "",
+                    "can_edit": first_patient.get("can_edit", False)
+                    if first_patient
+                    else False,
+                    "can_delete": first_patient.get("can_delete", False)
+                    if first_patient
+                    else False,
                 }
             )
         else:
@@ -339,6 +352,8 @@ def query_variants(
                     "has_conflicting_categories": False,
                     "categories_summary": None,
                     "patients": [],
+                    "can_edit": False,
+                    "can_delete": False,
                     # Compatibility fields
                     "patient_id": "-",
                     "patient_variant_id": None,
@@ -555,7 +570,7 @@ def annotate_excel_workbook(
     annotated_sheets = {}
 
     def annotate_row(gene_val, variant_val, dbsnp_val) -> dict:
-        g_clean = parse_excel_genes(gene_val) if gene_val else ""
+        g_clean = parse_excel_genes(gene_val) if gene_val else []
         d_clean = parse_excel_dbsnp(str(dbsnp_val)) if dbsnp_val is not None else ""
 
         hgvs = ""
@@ -592,8 +607,12 @@ def annotate_excel_workbook(
         # Sloučení všech nalezených záznamů a formátování výsledku
         return resolve_matches(collected_matches, format_classification)
 
+    num_sheets = len(sheet_names)
+
     for sheet in sheet_names:
-        if re.match(r"^\d+-\d+.*$", sheet):  # [1-9]*-[1-9]*... pattern
+        if (
+            re.match(r"^\d+-\d+.*$", sheet) or num_sheets == 1
+        ):  # [1-9]*-[1-9]*... pattern
             df = excel_reader.load_sheet(sheet).to_polars()
             orig_headers = df.columns
             logger.debug(f"Processing sheet '{sheet}' with headers: {orig_headers}")
@@ -961,6 +980,58 @@ def delete_patient_variant(patient_variant_id: int, user: User) -> dict:
         "message": "Varianta byla úspěšně smazána."
         + (" Report byl prázdný a byl také odstraněn." if report_deleted else ""),
         "report_deleted": report_deleted,
+    }
+
+
+def update_patient_variant(
+    patient_variant_id: int,
+    user: User,
+    category: float | int | str | None = None,
+    comment: str | None = None,
+) -> dict:
+    """
+    Updates the evaluation category and/or comment of a single PatientVariant record.
+    Enforces authorization: user must be staff/superuser or the creator of the report.
+    """
+    try:
+        pv = PatientVariant.objects.select_related(
+            "report", "report__patient", "report__created_by"
+        ).get(pk=patient_variant_id)
+    except PatientVariant.DoesNotExist:
+        raise Http404("Varianta pacienta nebyla nalezena.")
+
+    report = pv.report
+    if not (
+        user.is_staff
+        or user.is_superuser
+        or (report.created_by and report.created_by == user)
+    ):
+        raise PermissionDenied("Nemáte oprávnění upravit hodnocení této varianty.")
+
+    # Update category if provided
+    if category is not None and category != "":
+        try:
+            cat_float = float(category)
+        except (ValueError, TypeError):
+            raise ValueError(f"Neplatná hodnota kategorie: {category}")
+        pv.category = cat_float
+    elif category == "":
+        pv.category = None
+
+    if comment is not None:
+        pv.comment = str(comment).strip()
+
+    with transaction.atomic():
+        pv.save()
+        report.save(update_fields=["updated_at"])
+
+    return {
+        "success": True,
+        "message": "Hodnocení bylo úspěšně aktualizováno.",
+        "patient_variant_id": pv.id,
+        "category": pv.category,
+        "comment": pv.comment,
+        "updated_at": report.updated_at.isoformat(),
     }
 
 

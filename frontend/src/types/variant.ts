@@ -32,6 +32,8 @@ export type PatientObservation = {
   is_searched_patient?: boolean
   history: EvaluationHistoryItem[]
   history_count: number
+  can_edit?: boolean
+  can_delete?: boolean
 }
 
 export type Variant = {
@@ -68,4 +70,6 @@ export type Variant = {
   updated_at?: string | null
   created_by?: string
   comment?: string | null
+  can_edit?: boolean
+  can_delete?: boolean
 }

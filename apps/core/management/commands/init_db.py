@@ -1,8 +1,6 @@
 import logging
 import re
 import glob
-import os
-import tempfile
 import polars as pl
 from openpyxl import load_workbook
 from django.core.management.base import BaseCommand
