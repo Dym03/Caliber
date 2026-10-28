@@ -152,12 +152,13 @@
         throw new Error(data.error || 'Uložení hodnocení se nezdařilo.');
       }
 
-      localCategoryOverride = data.category !== undefined ? data.category : selectedCategoryVal;
+      const updatedCategory: number | null = (data.category !== undefined ? data.category : selectedCategoryVal) ?? null;
+      localCategoryOverride = updatedCategory;
       isEditingCategory = false;
       categorySaveSuccess = 'Hodnocení bylo úspěšně změněno.';
       onupdated?.({
         patientVariantId: activePatientVariantId,
-        category: localCategoryOverride,
+        category: updatedCategory,
       });
       setTimeout(() => {
         categorySaveSuccess = '';
