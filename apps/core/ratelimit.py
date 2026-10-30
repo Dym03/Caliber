@@ -39,13 +39,14 @@ def rate_limit(
 ):
     """
     Decorator for rate limiting views by client IP.
-    
+
     :param action: Action name used in cache key (e.g. 'login', 'register')
     :param max_requests: Maximum allowed attempts in the time window
     :param window_seconds: Time window in seconds
     :param reset_on_success: If True, reset counter when view returns HTTP < 400 (e.g. login)
     :param error_message: Custom message returned in 429 response
     """
+
     def decorator(view_func):
         @wraps(view_func)
         def wrapped(request, *args, **kwargs):
@@ -81,4 +82,3 @@ def rate_limit(
         return wrapped
 
     return decorator
-

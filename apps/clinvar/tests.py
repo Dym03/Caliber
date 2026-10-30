@@ -1,10 +1,40 @@
 from django.test import TestCase
+from xml.etree import ElementTree as etree
 from apps.clinvar.services.importer import ClinVarBulkImporter
 from apps.clinvar.services.transformer import TransformedVariant
-from apps.clinvar.services.parser import TranscriptAnnotation
+from apps.clinvar.services.parser import TranscriptAnnotation, _get_dbsnp
 from apps.core.enums import ClassificationEnum
 from apps.clinvar.models import ClinVarGeneVariant
 from apps.core.models import GeneVariant, compute_allele_hash
+
+
+class ClinVarParserTests(TestCase):
+    def test_get_dbsnp_extracts_multiple_rsids(self):
+        xml_data = """
+        <SimpleAllele>
+            <XRefList>
+                <XRef DB="dbSNP" ID="12345" Type="rs"/>
+                <XRef DB="ClinVar" ID="VCV0001"/>
+                <XRef DB="dbSNP" ID="rs67890" Type="rs"/>
+                <XRef DB="dbSNP" ID="12345" Type="rs"/>
+                <XRef DB="OMIM" ID="100000" Type="MIM"/>
+            </XRefList>
+        </SimpleAllele>
+        """
+        elem = etree.fromstring(xml_data)
+        rs_list = _get_dbsnp(elem)
+        self.assertEqual(rs_list, ["rs12345", "rs67890"])
+
+    def test_get_dbsnp_empty_when_no_dbsnp_xref(self):
+        xml_data = """
+        <SimpleAllele>
+            <XRefList>
+                <XRef DB="ClinVar" ID="VCV0001"/>
+            </XRefList>
+        </SimpleAllele>
+        """
+        elem = etree.fromstring(xml_data)
+        self.assertEqual(_get_dbsnp(elem), [])
 
 
 class ClinVarBulkImporterTests(TestCase):
@@ -19,7 +49,7 @@ class ClinVarBulkImporterTests(TestCase):
             position=32812345,
             ref_allele=long_ref,
             alt_allele=long_alt,
-            dbsnp="rs12345678",
+            dbsnp=["rs12345678"],
             disease="Immunodeficiency",
             last_updated="2026-01-01",
             genes=["TAPBP"],
@@ -42,18 +72,19 @@ class ClinVarBulkImporterTests(TestCase):
         self.assertEqual(var.ref_allele, long_ref)
         self.assertEqual(var.alt_allele, long_alt)
         self.assertEqual(var.allele_hash, compute_allele_hash(long_ref, long_alt))
+        self.assertTrue(var.dbsnps.filter(rsid="rs12345678").exists())
 
         # Confirm ClinVarGeneVariant was created
         cv = ClinVarGeneVariant.objects.get(gene_variant=var)
         self.assertEqual(cv.clinvar_id, "7606")
         self.assertEqual(cv.clinvar_classification, ClassificationEnum.PATHOGENIC.score)
 
-        # Test duplicate import (upsert on conflict) does not crash and updates fields
-        variant_item.dbsnp = "rs87654321"
+        # Test duplicate import (upsert on conflict) does not crash and updates relational fields
+        variant_item.dbsnp = ["rs87654321"]
         importer.add_variant(variant_item)
 
         var.refresh_from_db()
-        self.assertEqual(var.dbsnp, "rs87654321")
+        self.assertTrue(var.dbsnps.filter(rsid="rs87654321").exists())
 
     def test_import_with_in_batch_duplicate_variants(self):
         # Two items with the same genomic coordinates and alleles in the SAME batch
@@ -64,7 +95,7 @@ class ClinVarBulkImporterTests(TestCase):
             position=500000,
             ref_allele="A",
             alt_allele="C",
-            dbsnp="",
+            dbsnp=[],
             disease="Phenotype A",
             last_updated="2026-01-01",
             genes=["TEST1"],
@@ -78,7 +109,7 @@ class ClinVarBulkImporterTests(TestCase):
             position=500000,
             ref_allele="A",
             alt_allele="C",
-            dbsnp="rs999000",
+            dbsnp=["rs999000"],
             disease="Phenotype B",
             last_updated="2026-02-01",
             genes=["TEST1"],
@@ -94,7 +125,7 @@ class ClinVarBulkImporterTests(TestCase):
         # Should not crash with CardinalityViolation
         variants = GeneVariant.objects.filter(chromosome="chr1", position=500000)
         self.assertEqual(variants.count(), 1)
-        self.assertEqual(variants.first().dbsnp, "rs999000")
+        self.assertTrue(variants.first().dbsnps.filter(rsid="rs999000").exists())
 
     def test_import_long_hgvs_strings_and_distinct_transcripts(self):
         long_hgvs_c = "c.100delins" + ("A" * 1200)
@@ -107,7 +138,7 @@ class ClinVarBulkImporterTests(TestCase):
             position=1000000,
             ref_allele="A",
             alt_allele="T",
-            dbsnp="rs111222",
+            dbsnp=["rs111222"],
             disease="Test Condition",
             last_updated="2026-01-01",
             genes=["GENE1"],

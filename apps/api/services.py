@@ -22,7 +22,7 @@ from apps.core.models import (
 from apps.core.enums import ClassificationEnum
 from apps.core.management.commands.init_db import (
     parse_excel_genes,
-    parse_excel_dbsnp,
+    parse_excel_dbsnp_list,
     parse_excel_hgvs,
     parse_patient_id,
 )
@@ -63,7 +63,11 @@ def query_variants(
     if gene_id:
         patient_filters &= Q(variant__genes__id=gene_id)
     if dbsnp:
-        patient_filters &= Q(variant__dbsnp__iexact=dbsnp)
+        search_dbsnps = parse_excel_dbsnp_list(dbsnp)
+        if search_dbsnps:
+            patient_filters &= Q(variant__dbsnps__rsid__in=search_dbsnps)
+        else:
+            patient_filters &= Q(variant__dbsnps__rsid__iexact=dbsnp.strip())
     if variant:
         patient_filters &= (
             Q(variant__annotations__hgvs_c__iexact=variant)
@@ -97,7 +101,7 @@ def query_variants(
         target_queryset = (
             GeneVariant.objects.filter(id__in=variant_ids_qs)
             .select_related("clinvar_entry")
-            .prefetch_related("genes", "annotations", patient_prefetch)
+            .prefetch_related("genes", "annotations", "dbsnps", patient_prefetch)
         )
 
         if sort_by == "patients":
@@ -118,16 +122,19 @@ def query_variants(
         if gene_id:
             global_filters &= Q(genes__id=gene_id)
         if dbsnp:
-            global_filters &= Q(dbsnp__iexact=dbsnp)
+            search_dbsnps = parse_excel_dbsnp_list(dbsnp)
+            if search_dbsnps:
+                global_filters &= Q(dbsnps__rsid__in=search_dbsnps)
+            else:
+                global_filters &= Q(dbsnps__rsid__iexact=dbsnp.strip())
         if variant:
-            global_filters &= (
-                Q(annotations__hgvs_c__iexact=variant)
-                | Q(annotations__hgvs_p__iexact=variant)
+            global_filters &= Q(annotations__hgvs_c__iexact=variant) | Q(
+                annotations__hgvs_p__iexact=variant
             )
 
         target_queryset = (
             GeneVariant.objects.select_related("clinvar_entry")
-            .prefetch_related("annotations", "genes")
+            .prefetch_related("annotations", "genes", "dbsnps")
             .filter(global_filters)
             .distinct()
             .order_by("chromosome", "position", "id")
@@ -159,6 +166,9 @@ def query_variants(
     clean_search_pid = patient_id.strip().lower()
 
     for var_obj in page_obj:
+        all_dbsnps = list(dict.fromkeys(d.rsid for d in var_obj.dbsnps.all()))
+        dbsnp_repr = ", ".join(all_dbsnps)
+
         transcripts = [
             f"{a.transcript_base or ''}.{a.transcript_version or ''}:{a.hgvs_c}".strip(
                 ".:"
@@ -251,10 +261,14 @@ def query_variants(
                 unique_patients.sort(key=lambda p: p["updated_at"], reverse=True)
 
             latest_overall = pvs[0] if pvs else None
+            latest_classified = next(
+                (pv for pv in pvs if pv.category is not None and pv.category >= 0),
+                None,
+            )
             latest_cat = (
-                latest_overall.category
-                if latest_overall and latest_overall.category is not None
-                else None
+                latest_classified.category
+                if latest_classified
+                else (pvs[0].category if pvs and pvs[0].category is not None else None)
             )
             latest_updated = (
                 (
@@ -265,7 +279,9 @@ def query_variants(
             )
 
             valid_cats = [
-                p["category"] for p in unique_patients if p["category"] is not None
+                p["category"]
+                for p in unique_patients
+                if p["category"] is not None and p["category"] >= 0
             ]
             unique_cat_set = set(valid_cats)
             has_conflicting = len(unique_cat_set) > 1
@@ -291,7 +307,8 @@ def query_variants(
                     "all_genes": gene_symbols,
                     "variant": primary_hgvs,
                     "all_transcripts": transcripts,
-                    "dbsnp": var_obj.dbsnp or "",
+                    "dbsnp": dbsnp_repr,
+                    "all_dbsnps": all_dbsnps,
                     "gnomAD": var_obj.gnomAD or "",
                     "chromosome": var_obj.chromosome or "",
                     "position": var_obj.position,
@@ -339,7 +356,8 @@ def query_variants(
                     "all_genes": gene_symbols,
                     "variant": transcripts[0] if transcripts else "Unknown Transcript",
                     "all_transcripts": transcripts,
-                    "dbsnp": var_obj.dbsnp or "",
+                    "dbsnp": dbsnp_repr,
+                    "all_dbsnps": all_dbsnps,
                     "gnomAD": var_obj.gnomAD or "",
                     "chromosome": var_obj.chromosome or "",
                     "position": var_obj.position,
@@ -489,7 +507,7 @@ def get_variant_hashes_from_db(
 
     db_filters = Q()
     if unique_dbsnps:
-        db_filters |= Q(dbsnp__in=unique_dbsnps)
+        db_filters |= Q(dbsnps__rsid__in=unique_dbsnps)
     if unique_variants:
         db_filters |= Q(annotations__hgvs_c__in=unique_variants)
 
@@ -504,7 +522,7 @@ def get_variant_hashes_from_db(
 
         matched_variants = (
             GeneVariant.objects.select_related("clinvar_entry")
-            .prefetch_related("annotations", "genes")
+            .prefetch_related("annotations", "genes", "dbsnps")
             .annotate(latest_clinic_cat=latest_clinic_category)
             .filter(db_filters)
             .distinct()
@@ -528,8 +546,8 @@ def get_variant_hashes_from_db(
                 "clinvar_id": clinvar_id,
             }
 
-            if gv.dbsnp:
-                dbsnp_key = gv.dbsnp.strip().lower()
+            all_rs = [d.rsid.strip().lower() for d in gv.dbsnps.all()]
+            for dbsnp_key in all_rs:
                 if not any(
                     item["variant_id"] == gv.pk for item in dbsnp_map[dbsnp_key]
                 ):
@@ -570,7 +588,7 @@ def annotate_excel_workbook(
 
     def annotate_row(gene_val, variant_val, dbsnp_val) -> dict:
         g_clean = parse_excel_genes(gene_val) if gene_val else []
-        d_clean = parse_excel_dbsnp(str(dbsnp_val)) if dbsnp_val is not None else ""
+        d_list = parse_excel_dbsnp_list(str(dbsnp_val)) if dbsnp_val is not None else []
 
         hgvs = ""
         if variant_val is not None:
@@ -589,8 +607,9 @@ def annotate_excel_workbook(
                     collected_matches.append(item)
 
         # 1. Shoda podle dbSNP
-        if d_clean and d_clean in dbsnp_map:
-            add_matches(dbsnp_map[d_clean])
+        for d_clean in d_list:
+            if d_clean in dbsnp_map:
+                add_matches(dbsnp_map[d_clean])
 
         # 2. Shoda podle (gene, hgvs)
         if g_clean and hgvs:
@@ -843,7 +862,6 @@ def get_dashboard_statistics() -> dict:
             "variant_id",
             "variant__chromosome",
             "variant__position",
-            "variant__dbsnp",
             "variant__variation_type",
             "variant__clinvar_entry__clinvar_id",
             "variant__clinvar_entry__clinvar_classification",
@@ -874,18 +892,29 @@ def get_dashboard_statistics() -> dict:
             if ta.variant_id not in hgvs_by_var:
                 hgvs_by_var[ta.variant_id] = ta.hgvs_c
 
+    dbsnps_by_var = defaultdict(list)
+    if recurrent_var_ids:
+        from apps.core.models import VariantDbSnp
+
+        for vds in VariantDbSnp.objects.filter(variant_id__in=recurrent_var_ids):
+            if vds.rsid not in dbsnps_by_var[vds.variant_id]:
+                dbsnps_by_var[vds.variant_id].append(vds.rsid)
+
     recurrent_variants = []
     for r in recurrent_raw:
         v_id = r["variant_id"]
         gene_list = genes_by_var.get(v_id, [])
         primary_gene = gene_list[0] if gene_list else "—"
         hgvs_c = hgvs_by_var.get(v_id, "")
+        dbsnp_list = dbsnps_by_var.get(v_id, [])
+        dbsnp_str = ", ".join(dbsnp_list) if dbsnp_list else "—"
         recurrent_variants.append(
             {
                 "variant_id": v_id,
                 "gene": primary_gene,
                 "hgvs_c": hgvs_c,
-                "dbsnp": r["variant__dbsnp"] or "—",
+                "dbsnp": dbsnp_str,
+                "all_dbsnps": dbsnp_list,
                 "chromosome": r["variant__chromosome"],
                 "position": r["variant__position"],
                 "variation_type": r["variant__variation_type"] or "SNV",
@@ -1092,11 +1121,7 @@ def extract_theme_colors(wb) -> list[str]:
             val = (
                 srgb.attrib.get("val")
                 if srgb is not None
-                else (
-                    sysclr.attrib.get("lastClr")
-                    if sysclr is not None
-                    else "000000"
-                )
+                else (sysclr.attrib.get("lastClr") if sysclr is not None else "000000")
             )
             colors.append(val)
         return colors
@@ -1195,7 +1220,9 @@ def get_cell_color(cell, theme_colors: list[str]) -> str | None:
     return None
 
 
-def _find_target_column(headers: list, target_col: str | None = None) -> tuple[int | None]:
+def _find_target_column(
+    headers: list, target_col: str | None = None
+) -> tuple[int | None]:
     """Finds target variant column in header row."""
     if target_col:
         target_lower = target_col.strip().lower()
@@ -1206,7 +1233,9 @@ def _find_target_column(headers: list, target_col: str | None = None) -> tuple[i
     return None
 
 
-def detect_excel_colors_service(file_bytes: bytes, target_col: str | None = None) -> dict:
+def detect_excel_colors_service(
+    file_bytes: bytes, target_col: str | None = None
+) -> dict:
     r"""
     Scans Excel sheets matching Caliber's patient pattern (^\d+-\d+.*$ or single sheet),
     locates the target column (e.g. HGVSc), and collects distinct cell colors with frequencies.
@@ -1261,9 +1290,7 @@ def detect_excel_colors_service(file_bytes: bytes, target_col: str | None = None
             else:
                 uncolored_count += 1
 
-    colors_list = sorted(
-        color_stats.values(), key=lambda x: x["count"], reverse=True
-    )
+    colors_list = sorted(color_stats.values(), key=lambda x: x["count"], reverse=True)
 
     return {
         "target_column": target_col,
@@ -1317,7 +1344,9 @@ def convert_excel_colors_to_categories_service(
         if v is not None and str(v).strip() != "":
             raw_v = str(v).strip()
             # If a float score was passed (e.g. "2.5"), convert to string representation "2-3"
-            normalized_mapping[str(k).strip().upper()] = score_to_str_map.get(raw_v, raw_v)
+            normalized_mapping[str(k).strip().upper()] = score_to_str_map.get(
+                raw_v, raw_v
+            )
 
     for sheet in sheet_names:
         if not re.match(r"^\d+-\d+.*$", sheet) and not is_single_sheet:
@@ -1366,9 +1395,17 @@ def convert_excel_colors_to_categories_service(
 
             if matched_category is not None:
                 ws.cell(row=r, column=kategorie_col, value=str(matched_category))
-            elif uncolored_category is not None and str(uncolored_category).strip() != "" and not hex_c:
+            elif (
+                uncolored_category is not None
+                and str(uncolored_category).strip() != ""
+                and not hex_c
+            ):
                 uncol_str = str(uncolored_category).strip()
-                ws.cell(row=r, column=kategorie_col, value=score_to_str_map.get(uncol_str, uncol_str))
+                ws.cell(
+                    row=r,
+                    column=kategorie_col,
+                    value=score_to_str_map.get(uncol_str, uncol_str),
+                )
 
     output = io.BytesIO()
     wb.save(output)

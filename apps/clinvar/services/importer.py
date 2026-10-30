@@ -6,6 +6,7 @@ from apps.core.models import (
     Gene,
     GeneVariant,
     TranscriptAnnotation,
+    VariantDbSnp,
     compute_allele_hash,
 )
 
@@ -124,12 +125,9 @@ class ClinVarBulkImporter:
                     ref_allele=item.ref_allele,
                     alt_allele=item.alt_allele,
                     allele_hash=key[3],
-                    dbsnp=item.dbsnp or "",
                 )
-            elif item.dbsnp and not deduped_variants[key].dbsnp:
-                deduped_variants[key].dbsnp = item.dbsnp
 
-        # On conflict (duplicate coordinates + allele hash), refresh the dbSNP field value and return the ID
+        # On conflict (duplicate coordinates + allele hash), refresh and return the ID
         return GeneVariant.objects.bulk_create(
             list(deduped_variants.values()),
             update_conflicts=True,
@@ -139,7 +137,7 @@ class ClinVarBulkImporter:
                 "variation_type",
                 "allele_hash",
             ],
-            update_fields=["dbsnp"],
+            update_fields=["variation_type"],
         )
 
     def _bulk_insert_relations(self, items, variant_mapping):
@@ -147,11 +145,13 @@ class ClinVarBulkImporter:
         m2m_through_instances = []
         transcript_instances = []
         clinvar_instances = []
+        dbsnp_instances = []
 
         # Deduping sets to avoid duplicate key errors inside the single memory block
         seen_m2m = set()
         seen_transcripts = set()
         seen_clinvar = set()
+        seen_dbsnp = set()
 
         # Gather target relationship database rows in memory
         for item in items:
@@ -203,6 +203,19 @@ class ClinVarBulkImporter:
                 )
                 seen_clinvar.add(v_id)
 
+            # D. dbSNP Relational Child Records
+            rs_list = (
+                [item.dbsnp] if isinstance(item.dbsnp, str) else (item.dbsnp or [])
+            )
+            for rs in rs_list:
+                dbsnp_clean = rs.strip().lower()
+                dbsnp_key = (v_id, dbsnp_clean)
+                if dbsnp_clean and dbsnp_key not in seen_dbsnp:
+                    dbsnp_instances.append(
+                        VariantDbSnp(variant_id=v_id, rsid=dbsnp_clean)
+                    )
+                    seen_dbsnp.add(dbsnp_key)
+
         # Execute ultra-fast, isolated database inserts for all child collections
         if m2m_through_instances:
             GeneVariant.genes.through.objects.bulk_create(
@@ -212,6 +225,8 @@ class ClinVarBulkImporter:
             TranscriptAnnotation.objects.bulk_create(
                 transcript_instances, ignore_conflicts=True
             )
+        if dbsnp_instances:
+            VariantDbSnp.objects.bulk_create(dbsnp_instances, ignore_conflicts=True)
         if clinvar_instances:
             ClinVarGeneVariant.objects.bulk_create(
                 clinvar_instances,

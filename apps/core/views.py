@@ -67,7 +67,9 @@ def login_view(request):
     password = str(data.get("password", ""))
 
     if not email or not password:
-        return JsonResponse({"error": "E-mail a heslo jsou povinné položky."}, status=400)
+        return JsonResponse(
+            {"error": "E-mail a heslo jsou povinné položky."}, status=400
+        )
 
     user = authenticate(request, email=email, password=password)
     if user is None:
@@ -101,7 +103,8 @@ def register_view(request):
 
     if not email or not username or not password:
         return JsonResponse(
-            {"error": "E-mail, uživatelské jméno a heslo jsou povinné položky."}, status=400
+            {"error": "E-mail, uživatelské jméno a heslo jsou povinné položky."},
+            status=400,
         )
 
     if password != password_confirm:

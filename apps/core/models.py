@@ -82,8 +82,17 @@ class GeneVariant(models.Model):
 
     variation_type = models.CharField(max_length=32, blank=True)
 
-    dbsnp = models.CharField(max_length=64, blank=True)
     gnomAD = models.CharField(max_length=64, blank=True)
+
+    @property
+    def dbsnp(self) -> str:
+        """Vrací čárkou oddělený seznam rsID pro zpětnou kompatibilitu v Python kódu."""
+        if (
+            hasattr(self, "_prefetched_objects_cache")
+            and "dbsnps" in self._prefetched_objects_cache
+        ):
+            return ", ".join(d.rsid for d in self.dbsnps.all())
+        return ", ".join(self.dbsnps.values_list("rsid", flat=True))
 
     def save(self, *args, **kwargs):
         if not self.allele_hash:
@@ -104,9 +113,34 @@ class GeneVariant(models.Model):
         ]
 
         indexes = [
-            models.Index(fields=["dbsnp"]),
             models.Index(fields=["chromosome", "position"]),
         ]
+
+
+class VariantDbSnp(models.Model):
+    """
+    Relační reprezentace dbSNP identifikátorů pro variantu (1:N / M:N).
+    Umožňuje jedné variantě nést libovolné množství atomických rsID bez porušení 1NF
+    a zároveň umožňuje více variantám sdílet stejné rsID (multialelické lokusy).
+    """
+
+    variant = models.ForeignKey(
+        GeneVariant, on_delete=models.CASCADE, related_name="dbsnps"
+    )
+    rsid = models.CharField(max_length=32, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["variant", "rsid"], name="unique_variant_dbsnp"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["rsid"]),
+        ]
+
+    def __str__(self):
+        return f"{self.rsid} (Variant {self.variant_id})"
 
 
 class TranscriptAnnotation(models.Model):

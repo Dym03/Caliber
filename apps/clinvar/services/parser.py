@@ -43,7 +43,7 @@ class ParsedVariant:
 
     genes: list[str]
     transcript_annotations: list[TranscriptAnnotation]
-    dbsnp: str | None
+    dbsnp: list[str]
 
     classification: str | None
     disease: str | None
@@ -181,12 +181,22 @@ def _get_genes(allele_record: etree.Element) -> list[str]:
     return genes
 
 
-def _get_dbsnp(allele_record: etree.Element) -> str | None:
-    """Extracts the rsID from dbSNP."""
+def _get_dbsnp(allele_record: etree.Element) -> list[str]:
+    """Extracts all rsIDs from dbSNP for the allele."""
+    dbsnps = []
     for xref in allele_record.findall("XRefList/XRef"):
         if xref.get("DB") == "dbSNP" and xref.get("Type") == "rs":
-            return f"rs{xref.get('ID')}"
-    return None
+            rs_id = xref.get("ID")
+            if rs_id:
+                formatted = (
+                    f"rs{rs_id}"
+                    if not str(rs_id).lower().startswith("rs")
+                    else str(rs_id)
+                )
+                rs_clean = formatted.strip().lower()
+                if rs_clean not in dbsnps:
+                    dbsnps.append(rs_clean)
+    return dbsnps
 
 
 def parse_clinvar_xml():

@@ -207,14 +207,19 @@
 
             <div class="col-dbsnp">
               <span class="selectable mono muted dbsnp-code-text" title={item.dbsnp || ''}>
-                {item.dbsnp || '—'}
+                {item.all_dbsnps && item.all_dbsnps.length > 0 ? item.all_dbsnps[0] : (item.dbsnp || '—')}
               </span>
+              {#if item.all_dbsnps && item.all_dbsnps.length > 1}
+                <span class="dbsnp-more-badge" title={item.dbsnp}>
+                  +{item.all_dbsnps.length - 1}
+                </span>
+              {/if}
               {#if item.dbsnp && item.dbsnp !== '—'}
                 <button
                   type="button"
                   class="copy-pill-btn {copiedKey === 'dbsnp-' + index ? 'copied' : ''}"
                   onclick={(e) => copyText(item.dbsnp, 'dbsnp-' + index, e)}
-                  title="Kopírovat dbSNP kód"
+                  title="Kopírovat dbSNP kód ({item.dbsnp})"
                   aria-label="Kopírovat dbSNP kód"
                 >
                   {#if copiedKey === 'dbsnp-' + index}

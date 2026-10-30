@@ -279,7 +279,35 @@
         </div>
         <p class="muted modal-sub">
           {variant.chromosome}:{variant.position ?? '—'}
-          {#if variant.dbsnp}
+          {#if variant.all_dbsnps && variant.all_dbsnps.length > 0}
+            · 
+            {#each variant.all_dbsnps as rs, rIdx}
+              <span class="modal-dbsnp-item">
+                <span class="mono">{rs}</span>
+                <button 
+                  type="button" 
+                  class="copy-pill-btn copy-btn-inline {modalCopiedKey === 'modal-dbsnp-' + rIdx ? 'copied' : ''}"
+                  onclick={() => copyModalText(rs, 'modal-dbsnp-' + rIdx)}
+                  title="Kopírovat {rs}"
+                  aria-label="Kopírovat {rs}"
+                >
+                  {#if modalCopiedKey === 'modal-dbsnp-' + rIdx}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  {:else}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                  {/if}
+                </button>
+              </span>
+              {#if rIdx < variant.all_dbsnps.length - 1}
+                <span class="modal-dbsnp-sep">, </span>
+              {/if}
+            {/each}
+          {:else if variant.dbsnp}
             · {variant.dbsnp}
             <button 
               type="button" 

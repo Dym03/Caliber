@@ -19,7 +19,10 @@ from apps.api.services import (
     detect_excel_colors_service,
     convert_excel_colors_to_categories_service,
 )
-from apps.core.management.commands.init_db import parse_excel_dbsnp, parse_excel_hgvs
+from apps.core.management.commands.init_db import (
+    parse_excel_dbsnp_list,
+    parse_excel_hgvs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +96,9 @@ def upload_variants_file(request):
     for uploaded in uploaded_files:
         if not any(uploaded.name.lower().endswith(ext) for ext in allowed_extensions):
             return JsonResponse(
-                {"error": f"Nepodporovaný formát souboru: {uploaded.name}. Nahrajte prosím .xlsx, nebo .xls soubor."},
+                {
+                    "error": f"Nepodporovaný formát souboru: {uploaded.name}. Nahrajte prosím .xlsx, nebo .xls soubor."
+                },
                 status=400,
             )
 
@@ -133,7 +138,9 @@ def classify_variants(request):
     name_lower = uploaded_file.name.lower()
     if not any(name_lower.endswith(ext) for ext in allowed_extensions):
         return JsonResponse(
-            {"error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx, nebo .xls soubor."},
+            {
+                "error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx, nebo .xls soubor."
+            },
             status=400,
         )
 
@@ -163,16 +170,10 @@ def classify_variants(request):
         unique_variants = []
 
         if dbsnp_col:
-            parsed_dbsnps = [
-                parse_excel_dbsnp(str(x).strip())
-                for x in df[dbsnp_col].drop_nulls().unique().to_list()
-            ]
-
-            unique_dbsnps = [
-                db
-                for db in parsed_dbsnps
-                if db and db.strip() not in ["", "-", "—", "none", "nan"]
-            ]
+            for x in df[dbsnp_col].drop_nulls().unique().to_list():
+                for rs in parse_excel_dbsnp_list(x):
+                    if rs not in unique_dbsnps:
+                        unique_dbsnps.append(rs)
 
         if hgsv_c_col:
             raw_variants = [
@@ -223,7 +224,9 @@ def detect_excel_colors(request):
     name_lower = uploaded_file.name.lower()
     if not name_lower.endswith(".xlsx"):
         return JsonResponse(
-            {"error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx soubor."},
+            {
+                "error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx soubor."
+            },
             status=400,
         )
 
@@ -254,13 +257,17 @@ def convert_colors_to_categories(request):
     name_lower = uploaded_file.name.lower()
     if not (name_lower.endswith(".xlsx")):
         return JsonResponse(
-            {"error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx soubor."},
+            {
+                "error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx soubor."
+            },
             status=400,
         )
 
     raw_mapping = request.POST.get("mapping", "{}")
     try:
-        color_mapping = json.loads(raw_mapping) if isinstance(raw_mapping, str) else raw_mapping
+        color_mapping = (
+            json.loads(raw_mapping) if isinstance(raw_mapping, str) else raw_mapping
+        )
     except Exception:
         return JsonResponse({"error": "Neplatný formát mapování barev."}, status=400)
 

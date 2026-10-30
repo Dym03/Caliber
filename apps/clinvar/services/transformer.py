@@ -12,7 +12,7 @@ class TransformedVariant:
     position: int | None
     ref_allele: str | None
     alt_allele: str | None
-    dbsnp: str | None
+    dbsnp: list[str]
     disease: str | None
     last_updated: str
     genes: list[str]
