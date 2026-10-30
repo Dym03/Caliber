@@ -496,7 +496,7 @@ def get_variant_hashes_from_db(
     if db_filters:
         latest_clinic_category = Subquery(
             PatientVariant.objects.filter(
-                variant=OuterRef("pk"), category__isnull=False
+                variant=OuterRef("pk"), category__isnull=False, category__gte=0
             )
             .order_by("-report__updated_at")
             .values("category")[:1]
