@@ -14,6 +14,7 @@ from apps.core.models import (
     PatientVariant,
     TranscriptAnnotation,
     User,
+    VariantDbSnp,
     compute_allele_hash,
 )
 
@@ -32,6 +33,7 @@ class ImportCaches:
         self.variant_cache: dict[tuple, GeneVariant] = {}
         self.annotation_cache: dict[tuple, TranscriptAnnotation] = {}
         self.variant_gene_m2m_cache: set[tuple[int, int]] = set()
+        self.variant_dbsnp_cache: set[tuple[int, str]] = set()
 
     def clear(self) -> None:
         self.patient_cache.clear()
@@ -39,6 +41,7 @@ class ImportCaches:
         self.variant_cache.clear()
         self.annotation_cache.clear()
         self.variant_gene_m2m_cache.clear()
+        self.variant_dbsnp_cache.clear()
 
 
 def sheet_exists(path: str, sheet: str) -> bool:
@@ -151,18 +154,41 @@ def parse_excel_hgvs(excel_string):
     return None, None, excel_string
 
 
-def parse_excel_dbsnp(excel_string) -> str:
+def parse_excel_dbsnp_list(excel_string: object) -> list[str]:
+    """
+    Parses a string or cell value containing one or more dbSNP IDs.
+    Splits by comma, semicolon, slash, pipe, or whitespace.
+    Returns a deduplicated list of clean rsIDs in lowercase, e.g. ['rs12345', 'rs67890'].
+    """
     if not excel_string:
-        return ""
-    # Split by commas and filter out any non-rs IDs
-    dbsnp_ids = [
-        id.strip() for id in excel_string.split(",") if id.strip().startswith("rs")
-    ]
-    if len(dbsnp_ids) > 1:
-        logger.warning(
-            f"Multiple dbSNP IDs found: {dbsnp_ids}. Only the first one will be used."
-        )
-    return dbsnp_ids[0] if dbsnp_ids else ""
+        return []
+    raw = str(excel_string).strip()
+    if raw.lower() in ("", "-", "—", "none", "nan", "null", "."):
+        return []
+
+    tokens = re.split(r"[,;/\s|]+", raw)
+    dbsnps = []
+    for token in tokens:
+        t = token.strip()
+        if not t:
+            continue
+        if t.lower().startswith("rs"):
+            m = re.match(r"^(rs\d+)", t, re.IGNORECASE)
+            if m:
+                rs_clean = m.group(1).lower()
+                if rs_clean not in dbsnps:
+                    dbsnps.append(rs_clean)
+        elif t.isdigit():
+            rs_clean = f"rs{t}"
+            if rs_clean not in dbsnps:
+                dbsnps.append(rs_clean)
+    return dbsnps
+
+
+def parse_excel_dbsnp(excel_string) -> str:
+    """Returns primary clean rsID (for backward compatibility)."""
+    dbsnps = parse_excel_dbsnp_list(excel_string)
+    return dbsnps[0] if dbsnps else ""
 
 
 def parse_excel_genes(excel_string) -> list:
@@ -198,12 +224,8 @@ def parse_row(row, patient_id: str | None) -> dict | None:
     )
     cleaned_data["ref_allele"] = clean_str(row.get("Reference") or row.get("Ref"))
     cleaned_data["alt_allele"] = clean_str(row.get("Alternate") or row.get("Alt"))
-    cleaned_data["dbSNP"] = parse_excel_dbsnp(
-        row.get("VEP dbSNP ID", "")
-        or row.get(
-            "dbSNP", ""
-        )  # TODO IF CMON are wanted, because right now we have some dbSNP with comma separated multiple IDs, which is not ideal for the unique constraint and the mapping to clinvar variants. We should ask if we want to split those into multiple dbSNPs or just take the first one or something else
-    )
+    dbsnp_raw = row.get("VEP dbSNP ID", "") or row.get("dbSNP", "")
+    cleaned_data["dbsnp_list"] = parse_excel_dbsnp_list(dbsnp_raw)
 
     cleaned_data["hgvs_coding"] = clean_str(row.get("HGVSc") or row.get("Transcript"))
     nucleotide = clean_str(row.get("Nucleotide", ""))
@@ -263,7 +285,6 @@ def persist_row(
                 "ref_allele": data["ref_allele"] or "",
                 "alt_allele": data["alt_allele"] or "",
                 "gnomAD": data["gnomAD"],
-                "dbsnp": data["dbSNP"],
             },
         )
 
@@ -277,15 +298,20 @@ def persist_row(
         if not gene_variant.gnomAD and data["gnomAD"]:
             gene_variant.gnomAD = data["gnomAD"]
             updated_fields.append("gnomAD")
-        if not gene_variant.dbsnp and data["dbSNP"]:
-            gene_variant.dbsnp = data["dbSNP"]
-            updated_fields.append("dbsnp")
         if updated_fields:
             gene_variant.save(update_fields=updated_fields)
 
         caches.variant_cache[variant_key] = gene_variant
     else:
         gene_variant = caches.variant_cache[variant_key]
+
+    # 2b. VariantDbSnp Lookup and persistence (1:N / M:N)
+    dbsnps_to_link = data.get("dbsnp_list") or []
+    for rs in dbsnps_to_link:
+        dbsnp_key = (gene_variant.id, rs)
+        if dbsnp_key not in caches.variant_dbsnp_cache:
+            VariantDbSnp.objects.get_or_create(variant=gene_variant, rsid=rs)
+            caches.variant_dbsnp_cache.add(dbsnp_key)
 
     # 3. Handle ManyToMany Relationship for Genes
     # Splitting by common delimiters (like commas or slashes) in case an excel row lists overlapping genes
@@ -323,17 +349,42 @@ def persist_row(
         patient=patient, report_name=file_name, defaults={"created_by": user}
     )
     try:
-        PatientVariant.objects.get_or_create(
+        pv, created = PatientVariant.objects.get_or_create(
             report=report,
             variant=gene_variant,
-            zygosity=data["zygosity"],
-            category=data["category"],
-            comment=data["comment"],
-            reported_hgvs_c=data["hgvs_coding"],
+            defaults={
+                "zygosity": data["zygosity"],
+                "category": data["category"],
+                "comment": data["comment"],
+                "reported_hgvs_c": data["hgvs_coding"],
+            },
         )
+        if not created:
+            update_fields = []
+            new_cat = data.get("category")
+            # If currently unclassified (None or < 0) and the new Excel has a valid category (>= 0), override it
+            if (pv.category is None or pv.category < 0) and (
+                new_cat is not None and new_cat >= 0
+            ):
+                pv.category = new_cat
+                update_fields.append("category")
+
+            if data.get("comment") and data["comment"] != pv.comment:
+                pv.comment = data["comment"]
+                update_fields.append("comment")
+            if data.get("zygosity") and data["zygosity"] != pv.zygosity:
+                pv.zygosity = data["zygosity"]
+                update_fields.append("zygosity")
+            if data.get("hgvs_coding") and not pv.reported_hgvs_c:
+                pv.reported_hgvs_c = data["hgvs_coding"]
+                update_fields.append("reported_hgvs_c")
+
+            if update_fields:
+                pv.save(update_fields=update_fields)
+                report.save(update_fields=["updated_at"])
     except Exception as e:
         logger.error(
-            f"Skipping Variant {gene_variant.id} already linked to report {report.id}. Error: {e}"
+            f"Error linking/updating Variant {gene_variant.id} for report {report.id}. Error: {e}"
         )
 
 

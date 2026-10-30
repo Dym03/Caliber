@@ -47,6 +47,8 @@
   let currentPage = $state(1)
   let currentSort = $state('genomic')
   let currentView = $state<'registry' | 'batch' | 'dashboard'>('registry')
+  let isRegistryUploading = $state(false);
+  let isBatchProcessing = $state(false);
 
   let sessionState = $state<SessionState>('loading');
   let currentUser = $state<AuthUser | null>(null);
@@ -276,9 +278,11 @@
       onviewchange={(view) => (currentView = view)}
       userLabel={`${currentUser.username} · ${currentUser.email}`}
       isStaff={currentUser.is_staff || false}
+      {isRegistryUploading}
+      {isBatchProcessing}
       onlogout={handleLogout}
     />
-    {#if currentView === 'registry'}
+    <div class="view-panel" class:view-panel--hidden={currentView !== 'registry'}>
       <section class="search">
         <SearchForm
           bind:variantQuery
@@ -290,7 +294,10 @@
           onsubmit={handleFormSubmit}
           onclear={clearSearch}
         />
-        <UploadPanel onunauthorized={handleUnauthorized} />
+        <UploadPanel
+          bind:isUploading={isRegistryUploading}
+          onunauthorized={handleUnauthorized}
+        />
       </section>
 
       {#if successNotice}
@@ -312,15 +319,22 @@
           ondeleted={handleItemDeleted}
         />
       </section>
-    {:else if currentView === 'batch'}
+    </div>
+
+    <div class="view-panel" class:view-panel--hidden={currentView !== 'batch'}>
       <section class="batch-container">
-        <VariantClassifier onunauthorized={handleUnauthorized} />
+        <VariantClassifier
+          bind:isProcessing={isBatchProcessing}
+          onunauthorized={handleUnauthorized}
+        />
       </section>
-    {:else if currentView === 'dashboard'}
+    </div>
+
+    <div class="view-panel" class:view-panel--hidden={currentView !== 'dashboard'}>
       <section class="dashboard-container">
         <Dashboard onunauthorized={handleUnauthorized} />
       </section>
-    {/if}
+    </div>
   </div>
 {:else}
   <div class="auth-shell">

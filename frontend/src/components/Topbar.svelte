@@ -4,10 +4,20 @@
     onviewchange: (view: 'registry' | 'batch' | 'dashboard') => void;
     userLabel: string;
     isStaff?: boolean;
+    isRegistryUploading?: boolean;
+    isBatchProcessing?: boolean;
     onlogout: () => void;
   }
 
-  let { currentView, onviewchange, userLabel, isStaff = false, onlogout }: Props = $props();
+  let {
+    currentView,
+    onviewchange,
+    userLabel,
+    isStaff = false,
+    isRegistryUploading = false,
+    isBatchProcessing = false,
+    onlogout,
+  }: Props = $props();
 </script>
 
 <header class="topbar">
@@ -31,6 +41,9 @@
         onclick={() => onviewchange('registry')}
       >
         Registr Variant
+        {#if isRegistryUploading}
+          <span class="tab-badge-spinner" title="Probíhá nahrávání..."></span>
+        {/if}
       </button>
       <button
         type="button"
@@ -38,6 +51,9 @@
         onclick={() => onviewchange('batch')}
       >
         Klasifikace
+        {#if isBatchProcessing}
+          <span class="tab-badge-spinner" title="Probíhá zpracování..."></span>
+        {/if}
       </button>
       <button
         type="button"

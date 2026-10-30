@@ -44,6 +44,7 @@ export type Variant = {
   variant: string
   all_transcripts?: string[]
   dbsnp: string
+  all_dbsnps?: string[]
   gnomAD?: string
   chromosome: string
   position: number | null

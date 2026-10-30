@@ -1,6 +1,7 @@
 """
 Czech-localized password validators for Django authentication.
 """
+
 import re
 from difflib import SequenceMatcher
 
@@ -109,4 +110,3 @@ class CzechNumericPasswordValidator(DjangoNumericPasswordValidator):
 
     def get_help_text(self):
         return "Heslo nemůže být tvořeno pouze čísly."
-

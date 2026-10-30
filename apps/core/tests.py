@@ -10,6 +10,7 @@ class AuthFlowTests(TestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
+
     def test_status_is_unauthenticated_by_default(self):
         response = self.client.get(reverse("auth_status"))
         self.assertEqual(response.status_code, 200)
@@ -78,7 +79,9 @@ class AuthFlowTests(TestCase):
         error_msg = response.json().get("error", "")
         self.assertIn("krátké", error_msg)
         self.assertIn("čísel", error_msg)
-        self.assertFalse(get_user_model().objects.filter(email="weak@example.com").exists())
+        self.assertFalse(
+            get_user_model().objects.filter(email="weak@example.com").exists()
+        )
 
     def test_register_rejects_password_similar_to_username(self):
         response = self.client.post(
@@ -141,7 +144,9 @@ class AuthFlowTests(TestCase):
         for _ in range(5):
             res = self.client.post(
                 reverse("login_view"),
-                data=json.dumps({"email": "attacker@example.com", "password": "WrongPassword!"}),
+                data=json.dumps(
+                    {"email": "attacker@example.com", "password": "WrongPassword!"}
+                ),
                 content_type="application/json",
             )
             self.assertEqual(res.status_code, 400)
@@ -149,7 +154,9 @@ class AuthFlowTests(TestCase):
         # 6th attempt should be rate limited
         blocked_res = self.client.post(
             reverse("login_view"),
-            data=json.dumps({"email": "attacker@example.com", "password": "WrongPassword!"}),
+            data=json.dumps(
+                {"email": "attacker@example.com", "password": "WrongPassword!"}
+            ),
             content_type="application/json",
         )
         self.assertEqual(blocked_res.status_code, 429)
@@ -210,7 +217,7 @@ class InitDBCacheTests(TestCase):
 
         df = pl.DataFrame(
             {
-                "Name": ["Patient_A"],
+                "Name": ["12345"],
                 "Symbol": ["BRCA1"],
                 "Variant_class": ["SNV"],
                 "Chr": ["chr17"],
@@ -230,21 +237,28 @@ class InitDBCacheTests(TestCase):
 
         parse_df(df, "test_file.xlsx")
 
-        self.assertTrue(Patient.objects.filter(name="Patient_A").exists())
-        self.assertTrue(GeneVariant.objects.filter(dbsnp="rs12345").exists())
+        self.assertTrue(Patient.objects.filter(name="12345").exists())
+        self.assertTrue(GeneVariant.objects.filter(dbsnps__rsid="rs12345").exists())
 
     def test_parse_df_clears_owned_caches_on_exception(self):
         import polars as pl
+        from unittest.mock import patch
         from apps.core.management.commands.init_db import parse_df
 
         df = pl.DataFrame(
             {
-                "Coordinate": ["invalid-int-value"],
+                "Name": ["12345"],
+                "Chr": ["chr17"],
+                "Coordinate": [43044295],
             }
         )
 
-        with self.assertRaises(ValueError):
-            parse_df(df, "faulty.xlsx")
+        with patch(
+            "apps.core.management.commands.init_db.persist_row",
+            side_effect=ValueError("Test crash"),
+        ):
+            with self.assertRaises(ValueError):
+                parse_df(df, "faulty.xlsx")
 
 
 class GeneVariantLongAlleleTests(TestCase):
@@ -287,7 +301,7 @@ class GeneVariantLongAlleleTests(TestCase):
 
         df = pl.DataFrame(
             {
-                "Name": ["Patient_Long"],
+                "Name": ["54321"],
                 "Symbol": ["TP53"],
                 "Variant_class": ["SNV"],
                 "Chr": ["chr17"],
@@ -307,7 +321,7 @@ class GeneVariantLongAlleleTests(TestCase):
 
         parse_df(df, "long_allele_test.xlsx")
 
-        var = GeneVariant.objects.get(dbsnp="rs99999")
+        var = GeneVariant.objects.get(dbsnps__rsid="rs99999")
         self.assertEqual(var.ref_allele, long_ref)
         self.assertEqual(var.alt_allele, long_alt)
         self.assertEqual(var.allele_hash, compute_allele_hash(long_ref, long_alt))
@@ -321,7 +335,7 @@ class GeneVariantLongAlleleTests(TestCase):
 
         df = pl.DataFrame(
             {
-                "Name": ["Patient_Long_HGVS"],
+                "Name": ["67890"],
                 "Symbol": ["TP53"],
                 "Variant_class": ["DEL"],
                 "Chr": ["chr17"],
@@ -341,9 +355,68 @@ class GeneVariantLongAlleleTests(TestCase):
 
         parse_df(df, "long_hgvs_test.xlsx")
 
-        pv = PatientVariant.objects.get(variant__dbsnp="rs88888")
+        pv = PatientVariant.objects.get(variant__dbsnps__rsid="rs88888")
         self.assertEqual(pv.reported_hgvs_c, long_hgvs)
 
-        ann = TranscriptAnnotation.objects.get(variant__dbsnp="rs88888")
+        ann = TranscriptAnnotation.objects.get(variant__dbsnps__rsid="rs88888")
         self.assertEqual(ann.transcript_base, "NM_000546")
         self.assertEqual(ann.hgvs_c, "c.100delins" + ("A" * 600))
+
+
+class PatientVariantReuploadTests(TestCase):
+    def test_parse_df_overrides_unclassified_category_on_reupload(self):
+        import polars as pl
+        from apps.core.management.commands.init_db import parse_df
+        from apps.core.models import PatientVariant
+
+        row_data = {
+            "Name": ["99001"],
+            "Symbol": ["BRCA1"],
+            "Variant_class": ["SNV"],
+            "Chr": ["chr17"],
+            "Coordinate": [43044295],
+            "Reference": ["A"],
+            "Alternate": ["G"],
+            "VEP dbSNP ID": ["rs999001"],
+            "HGVSc": ["NM_007294.3:c.100A>G"],
+            "HGVSp": ["p.Lys34Arg"],
+            "Kategorie": ["-1"],
+            "Komentář": ["Initial unclassified comment"],
+            "Exon": ["2"],
+            "Genotype": ["het"],
+            "gnomAD AF": ["0.001"],
+        }
+
+        # 1. First upload with unclassified category (-1)
+        df1 = pl.DataFrame(row_data)
+        parse_df(df1, "reupload_report.xlsx")
+
+        pv = PatientVariant.objects.get(
+            report__report_name="reupload_report.xlsx",
+            variant__dbsnps__rsid="rs999001",
+        )
+        self.assertEqual(pv.category, -1.0)
+        self.assertEqual(pv.comment, "Initial unclassified comment")
+
+        # 2. Re-upload same report and variant with classified category (5) and updated comment
+        row_data_classified = dict(row_data)
+        row_data_classified["Kategorie"] = ["5"]
+        row_data_classified["Komentář"] = ["Updated classified comment"]
+        df2 = pl.DataFrame(row_data_classified)
+        parse_df(df2, "reupload_report.xlsx")
+
+        pv.refresh_from_db()
+        self.assertEqual(pv.category, 5.0)
+        self.assertEqual(pv.comment, "Updated classified comment")
+
+        # 3. Third upload with unclassified category (-1) should NOT downgrade category 5
+        row_data_unclassified = dict(row_data)
+        row_data_unclassified["Kategorie"] = ["-1"]
+        row_data_unclassified["Komentář"] = ["Updated comment without category downgrade"]
+        df3 = pl.DataFrame(row_data_unclassified)
+        parse_df(df3, "reupload_report.xlsx")
+
+        pv.refresh_from_db()
+        self.assertEqual(pv.category, 5.0)
+        self.assertEqual(pv.comment, "Updated comment without category downgrade")
+

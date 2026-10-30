@@ -13,6 +13,7 @@ from apps.core.models import (
     GeneticReport,
     PatientVariant,
     User,
+    VariantDbSnp,
 )
 
 
@@ -35,8 +36,8 @@ class SearchVariantsTests(TestCase):
             position=43044295,
             ref_allele="AG",
             alt_allele="",
-            dbsnp="rs80357713",
         )
+        VariantDbSnp.objects.create(variant=variant_one, rsid="rs80357713")
         variant_one.genes.add(brca1)
         TranscriptAnnotation.objects.create(
             variant=variant_one,
@@ -50,8 +51,8 @@ class SearchVariantsTests(TestCase):
             position=117199644,
             ref_allele="CTT",
             alt_allele="",
-            dbsnp="rs113993960",
         )
+        VariantDbSnp.objects.create(variant=variant_two, rsid="rs113993960")
         variant_two.genes.add(cftr)
         TranscriptAnnotation.objects.create(
             variant=variant_two,
@@ -331,6 +332,60 @@ class SearchVariantsTests(TestCase):
         self.assertEqual(patients_list[1]["patient_id"], "PAC-A")
         self.assertFalse(patients_list[1]["is_searched_patient"])
 
+    def test_multiple_dbsnp_search_and_serialization(self):
+        from apps.core.models import VariantDbSnp
+        from apps.api.services import query_variants
+
+        variant = GeneVariant.objects.get(dbsnps__rsid="rs80357713")
+        VariantDbSnp.objects.create(variant=variant, rsid="rs999888777")
+
+        # 1. Search by secondary dbSNP
+        res = query_variants(
+            variant="", gene="", dbsnp="rs999888777", page_number=1, per_page=10
+        )
+        self.assertEqual(res["meta"]["total_count"], 1)
+        item = res["results"][0]
+        self.assertIn("rs80357713", item["all_dbsnps"])
+        self.assertIn("rs999888777", item["all_dbsnps"])
+
+    def test_unclassified_category_does_not_mask_classified(self):
+        from apps.api.services import query_variants
+
+        variant = GeneVariant.objects.get(dbsnps__rsid="rs80357713")
+        patient_one = Patient.objects.create(name="Patient Classified")
+        patient_two = Patient.objects.create(name="Patient Unclassified")
+
+        report_one = GeneticReport.objects.create(
+            patient=patient_one, report_name="Rep1"
+        )
+        report_two = GeneticReport.objects.create(
+            patient=patient_two, report_name="Rep2"
+        )
+
+        # Older report with pathogenic 5.0
+        PatientVariant.objects.create(
+            variant=variant,
+            report=report_one,
+            category=5.0,
+            reported_hgvs_c="c.68_69delAG",
+        )
+        # Newer report with unclassified -1.0
+        PatientVariant.objects.create(
+            variant=variant,
+            report=report_two,
+            category=-1.0,
+            reported_hgvs_c="c.68_69delAG",
+        )
+
+        res = query_variants(
+            variant="c.68_69delAG", gene="", dbsnp="", page_number=1, per_page=10
+        )
+        self.assertEqual(res["meta"]["total_count"], 1)
+        item = res["results"][0]
+        self.assertEqual(item["latest_category"], 5.0)
+        self.assertFalse(item["has_conflicting_categories"])
+        self.assertEqual(item["categories_summary"], "5")
+
 
 class ColorToCategoryConverterTests(TestCase):
     def setUp(self):
@@ -379,15 +434,25 @@ class ColorToCategoryConverterTests(TestCase):
 
     def test_detect_excel_colors_requires_auth(self):
         excel_bytes = self._create_colored_workbook_bytes()
-        upload = SimpleUploadedFile("sample.xlsx", excel_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        upload = SimpleUploadedFile(
+            "sample.xlsx",
+            excel_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
         response = self.client.post(reverse("detect_excel_colors"), {"file": upload})
         self.assertEqual(response.status_code, 401)
 
     def test_detect_excel_colors_success(self):
         self.client.force_login(self.user)
         excel_bytes = self._create_colored_workbook_bytes()
-        upload = SimpleUploadedFile("sample.xlsx", excel_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        response = self.client.post(reverse("detect_excel_colors"), {"file": upload})
+        upload = SimpleUploadedFile(
+            "sample.xlsx",
+            excel_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response = self.client.post(
+            reverse("detect_excel_colors"), {"file": upload, "target_column": "HGVSc"}
+        )
         self.assertEqual(response.status_code, 200)
 
         data = response.json()
@@ -409,20 +474,28 @@ class ColorToCategoryConverterTests(TestCase):
 
         self.client.force_login(self.user)
         excel_bytes = self._create_colored_workbook_bytes()
-        upload = SimpleUploadedFile("sample.xlsx", excel_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        upload = SimpleUploadedFile(
+            "sample.xlsx",
+            excel_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
         mapping = {"#FF0000": "5", "#0000FF": "2-3"}
         response = self.client.post(
             reverse("convert_colors_to_categories"),
             {
                 "file": upload,
+                "target_column": "HGVSc",
                 "mapping": json.dumps(mapping),
                 "uncolored_category": "-1",
             },
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("application/vnd.openxmlformats", response["Content-Type"])
-        self.assertIn("attachment; filename=\"kategorie_sample.xlsx\"", response["Content-Disposition"])
+        self.assertIn(
+            'attachment; filename="kategorie_sample.xlsx"',
+            response["Content-Disposition"],
+        )
 
         # Verify output Excel content
         out_wb = openpyxl.load_workbook(io.BytesIO(response.content))
@@ -433,4 +506,6 @@ class ColorToCategoryConverterTests(TestCase):
 
         self.assertEqual(ws.cell(row=2, column=kat_col).value, "5")  # Red -> "5"
         self.assertEqual(ws.cell(row=3, column=kat_col).value, "2-3")  # Blue -> "2-3"
-        self.assertEqual(ws.cell(row=4, column=kat_col).value, "-1")  # Uncolored -> "-1"
+        self.assertEqual(
+            ws.cell(row=4, column=kat_col).value, "-1"
+        )  # Uncolored -> "-1"

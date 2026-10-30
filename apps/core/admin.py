@@ -12,6 +12,7 @@ from .models import (
     Patient,
     PatientVariant,
     TranscriptAnnotation,
+    VariantDbSnp,
 )
 
 
@@ -97,10 +98,22 @@ class UserAdmin(BaseUserAdmin):
     )
 
 
+class VariantDbSnpInline(admin.TabularInline):
+    model = VariantDbSnp
+    extra = 0
+
+
+@admin.register(GeneVariant)
+class GeneVariantAdmin(admin.ModelAdmin):
+    list_display = ("chromosome", "position", "variation_type", "dbsnp", "gnomAD")
+    search_fields = ("chromosome", "dbsnps__rsid")
+    inlines = [VariantDbSnpInline]
+
+
 admin.site.register(Patient)
 admin.site.register(Gene)
-admin.site.register(GeneVariant)
 admin.site.register(TranscriptAnnotation)
+admin.site.register(VariantDbSnp)
 admin.site.register(GeneticReport)
 admin.site.register(PatientVariant)
 

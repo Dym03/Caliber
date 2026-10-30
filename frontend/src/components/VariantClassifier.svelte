@@ -3,9 +3,10 @@
 
   interface Props {
     onunauthorized?: () => void;
+    isProcessing?: boolean;
   }
 
-  let { onunauthorized }: Props = $props();
+  let { onunauthorized, isProcessing = $bindable(false) }: Props = $props();
 
   type TabType = 'annotate' | 'colors';
   let activeTab = $state<TabType>('annotate');
@@ -20,6 +21,10 @@
   let isAnnotateDragActive = $state(false);
   let annotateProgress = $state<{ current: number; total: number; filename: string } | null>(null);
   let annotateFileInput: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    isProcessing = isAnnotating || isConverting || isDetectingColors;
+  });
 
   function handleAnnotateFileChange(event: Event) {
     const target = event.target as HTMLInputElement;
