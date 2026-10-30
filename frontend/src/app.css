@@ -993,6 +993,38 @@ input {
   box-shadow: 0 8px 20px -12px rgba(63, 111, 116, 0.7);
 }
 
+.tab-badge-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background-color: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+  animation: pulse-tab-badge 1.2s infinite ease-in-out;
+  vertical-align: middle;
+}
+
+@keyframes pulse-tab-badge {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+}
+
+.view-panel {
+  display: block;
+  width: 100%;
+}
+
+.view-panel--hidden {
+  display: none !important;
+}
+
 @keyframes lift {
   from {
     opacity: 0;

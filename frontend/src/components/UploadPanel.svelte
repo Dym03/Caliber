@@ -3,6 +3,7 @@
 
   interface Props {
     onunauthorized?: () => void;
+    isUploading?: boolean;
   }
 
   interface UploadPayload {
@@ -10,12 +11,11 @@
     filenames?: string[];
   }
 
-  let { onunauthorized }: Props = $props();
+  let { onunauthorized, isUploading = $bindable(false) }: Props = $props();
 
   let uploadFiles = $state<File[]>([]);
   let uploadMessage = $state('');
   let uploadError = $state('');
-  let isUploading = $state(false);
   let isDragActive = $state(false);
   let fileInputRef = $state<HTMLInputElement | null>(null);
 
