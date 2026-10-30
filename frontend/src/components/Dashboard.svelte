@@ -615,7 +615,6 @@
           {#each stats.recent_reports as report}
             <div class="report-box">
               <div class="report-box-header">
-                <span class="report-icon">📄</span>
                 <span class="report-filename" title={report.report_name}>{report.report_name}</span>
               </div>
               <div class="report-box-meta">

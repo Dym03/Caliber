@@ -143,7 +143,7 @@
 
 <div class="card hero">
   <h2>Nahrání Dat</h2>
-  <p>Nahrajte Excel z vaší analýzy. Soubor bude zpracován a nahrán do databáze.</p>
+  <p>Nahrajte Excel z vaší analýzy. Soubor bude zpracován a nahrán do databáze. Zpracovány jsou pouze listy ve formátu [id_pacienta]-[rok][cokoliv], nebo excel soubory s jedním listem.</p>
   <div class="upload-panel">
     <div
       class="dropzone {isDragActive ? 'drag-active' : ''}"

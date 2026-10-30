@@ -123,7 +123,6 @@ def query_variants(
             global_filters &= (
                 Q(annotations__hgvs_c__iexact=variant)
                 | Q(annotations__hgvs_p__iexact=variant)
-                | Q(variation_type__iexact=variant)
             )
 
         target_queryset = (
@@ -1072,3 +1071,306 @@ def delete_genetic_report(report_id: int, user: User) -> dict:
         "deleted_variants_count": variants_count,
         "patient_deleted": patient_deleted,
     }
+
+
+def extract_theme_colors(wb) -> list[str]:
+    """Extract base RGB theme colors from workbook loaded_theme XML."""
+    import xml.etree.ElementTree as ET
+
+    if not hasattr(wb, "loaded_theme") or not wb.loaded_theme:
+        return []
+    try:
+        root = ET.fromstring(wb.loaded_theme)
+        ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+        clr_scheme = root.find(".//a:clrScheme", ns)
+        if clr_scheme is None:
+            return []
+        colors = []
+        for child in clr_scheme:
+            srgb = child.find(".//a:srgbClr", ns)
+            sysclr = child.find(".//a:sysClr", ns)
+            val = (
+                srgb.attrib.get("val")
+                if srgb is not None
+                else (
+                    sysclr.attrib.get("lastClr")
+                    if sysclr is not None
+                    else "000000"
+                )
+            )
+            colors.append(val)
+        return colors
+    except Exception as e:
+        logger.warning(f"Failed to parse theme colors: {e}")
+        return []
+
+
+def tint_rgb(hex_rgb: str, tint: float) -> str:
+    """Applies an Excel tint/shade factor to a 6-character hex RGB string."""
+    hex_clean = hex_rgb.lstrip("#")
+    if len(hex_clean) == 8:
+        hex_clean = hex_clean[2:]
+    if len(hex_clean) != 6:
+        return f"#{hex_clean.upper()}"
+    try:
+        r = int(hex_clean[0:2], 16)
+        g = int(hex_clean[2:4], 16)
+        b = int(hex_clean[4:6], 16)
+        if tint > 0:
+            r = int(r * (1.0 - tint) + 255 * tint)
+            g = int(g * (1.0 - tint) + 255 * tint)
+            b = int(b * (1.0 - tint) + 255 * tint)
+        elif tint < 0:
+            r = int(r * (1.0 + tint))
+            g = int(g * (1.0 + tint))
+            b = int(b * (1.0 + tint))
+        r = max(0, min(255, r))
+        g = max(0, min(255, g))
+        b = max(0, min(255, b))
+        return f"#{r:02X}{g:02X}{b:02X}"
+    except (ValueError, IndexError):
+        return f"#{hex_clean.upper()}"
+
+
+def get_cell_color(cell, theme_colors: list[str]) -> str | None:
+    """
+    Extracts normalized hex color (#RRGGBB) from cell fill or font.
+    Supports RGB, theme colors with tint, and indexed colors.
+    """
+    from openpyxl.styles.colors import COLOR_INDEX
+
+    fg = cell.fill.fgColor if cell.fill else None
+    fill_type = cell.fill.fill_type if cell.fill else None
+
+    # Check cell fill
+    if fg and fill_type and fill_type != "none":
+        c_type = getattr(fg, "type", None)
+        if c_type == "rgb":
+            rgb_str = str(fg.rgb)
+            if len(rgb_str) == 8:
+                rgb_str = rgb_str[2:]  # Strip alpha channel
+            rgb_upper = rgb_str.upper()
+            if rgb_upper != "000000" and rgb_upper != "FFFFFF":
+                return f"#{rgb_upper}"
+            elif fill_type == "solid":
+                return f"#{rgb_upper}"
+        elif c_type == "theme":
+            theme_idx = fg.theme
+            if 0 <= theme_idx < len(theme_colors):
+                base_rgb = theme_colors[theme_idx]
+                tint = getattr(fg, "tint", 0.0) or 0.0
+                hex_c = tint_rgb(base_rgb, tint)
+                if hex_c not in ("#000000", "#FFFFFF"):
+                    return hex_c
+        elif c_type == "indexed":
+            idx = fg.indexed
+            if 0 <= idx < len(COLOR_INDEX):
+                raw = COLOR_INDEX[idx]
+                if len(raw) == 8:
+                    raw = raw[2:]
+                hex_c = f"#{raw.upper()}"
+                if hex_c not in ("#000000", "#FFFFFF"):
+                    return hex_c
+
+    # Check font color if fill was not set
+    if cell.font and cell.font.color:
+        f_fg = cell.font.color
+        f_type = getattr(f_fg, "type", None)
+        if f_type == "rgb":
+            rgb_str = str(f_fg.rgb)
+            if len(rgb_str) == 8:
+                rgb_str = rgb_str[2:]
+            rgb_upper = rgb_str.upper()
+            if rgb_upper not in ("000000", "FFFFFF"):
+                return f"#{rgb_upper}"
+        elif f_type == "theme":
+            theme_idx = f_fg.theme
+            if 0 <= theme_idx < len(theme_colors):
+                base_rgb = theme_colors[theme_idx]
+                tint = getattr(f_fg, "tint", 0.0) or 0.0
+                hex_c = tint_rgb(base_rgb, tint)
+                if hex_c not in ("#000000", "#FFFFFF"):
+                    return hex_c
+
+    return None
+
+
+def _find_target_column(headers: list, target_col: str | None = None) -> tuple[int | None]:
+    """Finds target variant column in header row."""
+    if target_col:
+        target_lower = target_col.strip().lower()
+        for idx, h in enumerate(headers, start=1):
+            if h and str(h).strip().lower() == target_lower:
+                return idx
+
+    return None
+
+
+def detect_excel_colors_service(file_bytes: bytes, target_col: str | None = None) -> dict:
+    r"""
+    Scans Excel sheets matching Caliber's patient pattern (^\d+-\d+.*$ or single sheet),
+    locates the target column (e.g. HGVSc), and collects distinct cell colors with frequencies.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    theme_colors = extract_theme_colors(wb)
+
+    sheet_names = wb.sheetnames
+    is_single_sheet = len(sheet_names) == 1
+
+    color_stats: dict[str, dict] = {}
+    processed_sheets = []
+    total_variants = 0
+    uncolored_count = 0
+
+    for sheet in sheet_names:
+        if not re.match(r"^\d+-\d+.*$", sheet) and not is_single_sheet:
+            continue
+
+        ws = wb[sheet]
+        if ws.max_row < 2:
+            continue
+
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        col_idx = _find_target_column(headers, target_col)
+        if not col_idx:
+            continue
+
+        processed_sheets.append(sheet)
+
+        for r in range(2, ws.max_row + 1):
+            cell = ws.cell(row=r, column=col_idx)
+            val = str(cell.value).strip() if cell.value is not None else ""
+            if not val and cell.fill is None:
+                continue
+
+            total_variants += 1
+            hex_c = get_cell_color(cell, theme_colors)
+            if hex_c:
+                hex_upper = hex_c.upper()
+                if hex_upper not in color_stats:
+                    color_stats[hex_upper] = {
+                        "hex": hex_upper,
+                        "count": 0,
+                        "example": val[:60] if val else "",
+                    }
+                color_stats[hex_upper]["count"] += 1
+                if not color_stats[hex_upper]["example"] and val:
+                    color_stats[hex_upper]["example"] = val[:60]
+            else:
+                uncolored_count += 1
+
+    colors_list = sorted(
+        color_stats.values(), key=lambda x: x["count"], reverse=True
+    )
+
+    return {
+        "target_column": target_col,
+        "sheets_count": len(processed_sheets),
+        "sheets": processed_sheets,
+        "total_variants": total_variants,
+        "uncolored_count": uncolored_count,
+        "colors": colors_list,
+    }
+
+
+def _color_distance(c1: str, c2: str) -> float:
+    """Euclidean distance between two 6-character hex colors."""
+    try:
+        r1, g1, b1 = int(c1[1:3], 16), int(c1[3:5], 16), int(c1[5:7], 16)
+        r2, g2, b2 = int(c2[1:3], 16), int(c2[3:5], 16), int(c2[5:7], 16)
+        return ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
+    except Exception:
+        return 999.0
+
+
+def convert_excel_colors_to_categories_service(
+    file_bytes: bytes,
+    color_mapping: dict,
+    target_col: str | None = None,
+    uncolored_category: str | float | int | None = None,
+) -> io.BytesIO:
+    """
+    Reads an uploaded Excel file, iterates through patient sheets, maps cell colors in target_col
+    to category string values (e.g. '5', '4-5', '2-3', '6', '7', '8', '-1'),
+    adds/updates the 'Kategorie' column, and returns the modified workbook.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+    theme_colors = extract_theme_colors(wb)
+
+    sheet_names = wb.sheetnames
+    is_single_sheet = len(sheet_names) == 1
+
+    score_to_str_map = {
+        "1.5": "1-2",
+        "2.5": "2-3",
+        "3.5": "3-4",
+        "4.5": "4-5",
+    }
+
+    # Normalize mapping keys to uppercase and values to clean strings
+    normalized_mapping: dict[str, str] = {}
+    for k, v in color_mapping.items():
+        if v is not None and str(v).strip() != "":
+            raw_v = str(v).strip()
+            # If a float score was passed (e.g. "2.5"), convert to string representation "2-3"
+            normalized_mapping[str(k).strip().upper()] = score_to_str_map.get(raw_v, raw_v)
+
+    for sheet in sheet_names:
+        if not re.match(r"^\d+-\d+.*$", sheet) and not is_single_sheet:
+            continue
+
+        ws = wb[sheet]
+        if ws.max_row < 1:
+            continue
+
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        col_idx = _find_target_column(headers, target_col)
+        if not col_idx:
+            continue
+
+        # Look for existing Kategorie column
+        kategorie_col = None
+        for idx, h in enumerate(headers, start=1):
+            if h and str(h).strip().lower() == "kategorie":
+                kategorie_col = idx
+                break
+
+        if not kategorie_col:
+            kategorie_col = ws.max_column + 1
+            ws.cell(row=1, column=kategorie_col, value="Kategorie")
+
+        for r in range(2, ws.max_row + 1):
+            cell = ws.cell(row=r, column=col_idx)
+            hex_c = get_cell_color(cell, theme_colors)
+
+            matched_category = None
+            if hex_c:
+                hex_upper = hex_c.upper()
+                if hex_upper in normalized_mapping:
+                    matched_category = normalized_mapping[hex_upper]
+                else:
+                    # Fuzzy match with tolerance if user picked approximate color
+                    best_match = None
+                    best_dist = 30.0  # Tolerance threshold
+                    for map_hex, cat_val in normalized_mapping.items():
+                        dist = _color_distance(hex_upper, map_hex)
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_match = cat_val
+                    if best_match is not None:
+                        matched_category = best_match
+
+            if matched_category is not None:
+                ws.cell(row=r, column=kategorie_col, value=str(matched_category))
+            elif uncolored_category is not None and str(uncolored_category).strip() != "" and not hex_c:
+                uncol_str = str(uncolored_category).strip()
+                ws.cell(row=r, column=kategorie_col, value=score_to_str_map.get(uncol_str, uncol_str))
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
