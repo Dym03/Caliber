@@ -1,4 +1,6 @@
 import json
+import io
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -328,3 +330,107 @@ class SearchVariantsTests(TestCase):
         self.assertTrue(patients_list[0]["is_searched_patient"])
         self.assertEqual(patients_list[1]["patient_id"], "PAC-A")
         self.assertFalse(patients_list[1]["is_searched_patient"])
+
+
+class ColorToCategoryConverterTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="genetics@example.com",
+            username="geneticist",
+            password="StrongPassword123!",
+        )
+
+    def _create_colored_workbook_bytes(self) -> bytes:
+        import openpyxl
+        from openpyxl.styles import PatternFill
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "12-34-Pacient"
+        ws.append(["Name", "Symbol", "HGVSc", "dbSNP"])
+
+        # Row 2: Red fill
+        ws.append(["1234", "BRCA1", "c.123A>G", "rs111"])
+        red_fill = PatternFill(
+            start_color="FFFF0000", end_color="FFFF0000", fill_type="solid"
+        )
+        ws.cell(row=2, column=3).fill = red_fill
+
+        # Row 3: Blue fill
+        ws.append(["1234", "BRCA1", "c.456C>T", "rs222"])
+        blue_fill = PatternFill(
+            start_color="FF0000FF", end_color="FF0000FF", fill_type="solid"
+        )
+        ws.cell(row=3, column=3).fill = blue_fill
+
+        # Row 4: Uncolored
+        ws.append(["1234", "BRCA1", "c.789G>A", "rs333"])
+
+        # Non-patient sheet (should be ignored when multiple sheets exist)
+        ws_info = wb.create_sheet(title="Info")
+        ws_info.append(["HGVSc", "Comment"])
+        ws_info.append(["c.999X", "Ignored"])
+        ws_info.cell(row=2, column=1).fill = red_fill
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
+
+    def test_detect_excel_colors_requires_auth(self):
+        excel_bytes = self._create_colored_workbook_bytes()
+        upload = SimpleUploadedFile("sample.xlsx", excel_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response = self.client.post(reverse("detect_excel_colors"), {"file": upload})
+        self.assertEqual(response.status_code, 401)
+
+    def test_detect_excel_colors_success(self):
+        self.client.force_login(self.user)
+        excel_bytes = self._create_colored_workbook_bytes()
+        upload = SimpleUploadedFile("sample.xlsx", excel_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response = self.client.post(reverse("detect_excel_colors"), {"file": upload})
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertEqual(data["sheets_count"], 1)
+        self.assertEqual(data["sheets"], ["12-34-Pacient"])
+        self.assertEqual(data["target_column"], "HGVSc")
+        self.assertEqual(data["total_variants"], 3)
+        self.assertEqual(data["uncolored_count"], 1)
+
+        hex_colors = {c["hex"]: c["count"] for c in data["colors"]}
+        self.assertIn("#FF0000", hex_colors)
+        self.assertEqual(hex_colors["#FF0000"], 1)
+        self.assertIn("#0000FF", hex_colors)
+        self.assertEqual(hex_colors["#0000FF"], 1)
+
+    def test_convert_colors_to_categories_success(self):
+        import openpyxl
+        import json
+
+        self.client.force_login(self.user)
+        excel_bytes = self._create_colored_workbook_bytes()
+        upload = SimpleUploadedFile("sample.xlsx", excel_bytes, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        mapping = {"#FF0000": "5", "#0000FF": "2-3"}
+        response = self.client.post(
+            reverse("convert_colors_to_categories"),
+            {
+                "file": upload,
+                "mapping": json.dumps(mapping),
+                "uncolored_category": "-1",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/vnd.openxmlformats", response["Content-Type"])
+        self.assertIn("attachment; filename=\"kategorie_sample.xlsx\"", response["Content-Disposition"])
+
+        # Verify output Excel content
+        out_wb = openpyxl.load_workbook(io.BytesIO(response.content))
+        ws = out_wb["12-34-Pacient"]
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        self.assertIn("Kategorie", headers)
+        kat_col = headers.index("Kategorie") + 1
+
+        self.assertEqual(ws.cell(row=2, column=kat_col).value, "5")  # Red -> "5"
+        self.assertEqual(ws.cell(row=3, column=kat_col).value, "2-3")  # Blue -> "2-3"
+        self.assertEqual(ws.cell(row=4, column=kat_col).value, "-1")  # Uncolored -> "-1"

@@ -1,5 +1,6 @@
 import logging
 import io
+import json
 import polars as pl
 from django.http import HttpResponse, JsonResponse, Http404
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
@@ -15,6 +16,8 @@ from apps.api.services import (
     delete_patient_variant,
     update_patient_variant,
     delete_genetic_report,
+    detect_excel_colors_service,
+    convert_excel_colors_to_categories_service,
 )
 from apps.core.management.commands.init_db import parse_excel_dbsnp, parse_excel_hgvs
 
@@ -90,7 +93,8 @@ def upload_variants_file(request):
     for uploaded in uploaded_files:
         if not any(uploaded.name.lower().endswith(ext) for ext in allowed_extensions):
             return JsonResponse(
-                {"error": f"Unsupported file type: {uploaded.name}."}, status=400
+                {"error": f"Nepodporovaný formát souboru: {uploaded.name}. Nahrajte prosím .xlsx, nebo .xls soubor."},
+                status=400,
             )
 
     results = []
@@ -129,7 +133,7 @@ def classify_variants(request):
     name_lower = uploaded_file.name.lower()
     if not any(name_lower.endswith(ext) for ext in allowed_extensions):
         return JsonResponse(
-            {"error": f"Unsupported file type: {uploaded_file.name}."},
+            {"error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx, nebo .xls soubor."},
             status=400,
         )
 
@@ -201,6 +205,92 @@ def classify_variants(request):
             {
                 "error": "Chyba serveru při analýze: zkontrolujte strukturu, případně požádejte spŕavce o výpis logu."
             },
+            status=500,
+        )
+
+
+@require_POST
+@login_required_json
+def detect_excel_colors(request):
+    """
+    Detects distinct cell colors used in the HGVSc/variant column across patient sheets.
+    Returns JSON with detected colors, counts, and examples.
+    """
+    uploaded_file = request.FILES.get("file")
+    if not uploaded_file:
+        return JsonResponse({"error": "Nebyl vybrán žádný soubor."}, status=400)
+
+    name_lower = uploaded_file.name.lower()
+    if not name_lower.endswith(".xlsx"):
+        return JsonResponse(
+            {"error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx soubor."},
+            status=400,
+        )
+
+    target_column = request.POST.get("target_column")
+    try:
+        file_bytes = uploaded_file.read()
+        result = detect_excel_colors_service(file_bytes, target_col=target_column)
+        return JsonResponse(result)
+    except Exception as e:
+        logger.exception(f"Chyba při detekci barev v Excelu: {str(e)}")
+        return JsonResponse(
+            {"error": f"Chyba při čtení stylů ze souboru: {str(e)}"},
+            status=500,
+        )
+
+
+@require_POST
+@login_required_json
+def convert_colors_to_categories(request):
+    """
+    Reads an uploaded Excel file, applies color-to-category mapping to the target column,
+    adds/updates the 'Kategorie' column, and returns the modified workbook for download.
+    """
+    uploaded_file = request.FILES.get("file")
+    if not uploaded_file:
+        return JsonResponse({"error": "Nebyl vybrán žádný soubor."}, status=400)
+
+    name_lower = uploaded_file.name.lower()
+    if not (name_lower.endswith(".xlsx")):
+        return JsonResponse(
+            {"error": f"Nepodporovaný formát souboru: {uploaded_file.name}. Nahrajte prosím .xlsx soubor."},
+            status=400,
+        )
+
+    raw_mapping = request.POST.get("mapping", "{}")
+    try:
+        color_mapping = json.loads(raw_mapping) if isinstance(raw_mapping, str) else raw_mapping
+    except Exception:
+        return JsonResponse({"error": "Neplatný formát mapování barev."}, status=400)
+
+    target_column = request.POST.get("target_column")
+    uncolored_category = request.POST.get("uncolored_category")
+
+    try:
+        file_bytes = uploaded_file.read()
+        output = convert_excel_colors_to_categories_service(
+            file_bytes=file_bytes,
+            color_mapping=color_mapping,
+            target_col=target_column,
+            uncolored_category=uncolored_category,
+        )
+
+        orig_name = uploaded_file.name
+        out_filename = f"kategorie_{orig_name}"
+        if not out_filename.endswith(".xlsx"):
+            out_filename += ".xlsx"
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{out_filename}"'
+        return response
+    except Exception as e:
+        logger.exception(f"Chyba při převodu barev na kategorie: {str(e)}")
+        return JsonResponse(
+            {"error": f"Chyba při zpracování souboru: {str(e)}"},
             status=500,
         )
 

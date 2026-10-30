@@ -115,6 +115,7 @@ ClassificationEnum._EXCEL_MAP = {
     "1-2": ClassificationEnum.BENIGN_LIKELY_BENIGN,
     "1": ClassificationEnum.BENIGN,
     "0": ClassificationEnum.ARTEFACT,
+    "-1": ClassificationEnum.UNCLASSIFIED,
     "": ClassificationEnum.UNCLASSIFIED,
 }
 

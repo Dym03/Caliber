@@ -155,7 +155,7 @@
 
     {#if results.length === 0}
       <div class="row empty-row">
-        <span class="muted">Žádná shoda pro zadaná vyhledávací kritéria</span>
+        <span class="muted">Žádná shoda</span>
       </div>
     {:else}
       {#each results as item, index}
